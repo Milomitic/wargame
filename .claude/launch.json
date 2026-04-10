@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "server",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["tsx", "watch", "packages/server/src/index.ts"],
+      "port": 3000
+    },
+    {
+      "name": "client",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "--config", "packages/client/vite.config.ts", "--port", "5174", "packages/client"],
+      "port": 5174
+    }
+  ]
+}
