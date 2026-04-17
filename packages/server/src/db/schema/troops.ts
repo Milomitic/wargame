@@ -12,6 +12,7 @@ export const troops = sqliteTable(
       .default(false),
     recruitingQuantity: integer("recruiting_quantity").notNull().default(0),
     recruitingTicksRemaining: integer("recruiting_ticks_remaining").default(0),
+    recruitingStartedAt: integer("recruiting_started_at"),
   },
   (table) => [
     uniqueIndex("troops_fief_type_idx").on(table.fiefId, table.troopType),

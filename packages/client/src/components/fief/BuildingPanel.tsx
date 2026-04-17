@@ -24,26 +24,26 @@ interface Props {
 }
 
 const BUILDING_ICONS: Record<string, string> = {
-  lumbermill: "\u{1FAB5}",
-  quarry: "\u26CF\uFE0F",
-  iron_mine: "\u2692\uFE0F",
-  farm: "\u{1F33E}",
-  market: "\u{1F4B0}",
-  barracks: "\u2694\uFE0F",
-  wall: "\u{1F9F1}",
-  stable: "\u{1F40E}",
-  workshop: "\u{1F527}",
-  keep: "\u{1F3F0}",
-  watchtower: "\u{1F441}\uFE0F",
-  granary: "\u{1F3DA}\uFE0F",
-  warehouse: "\u{1F4E6}",
+  lumbermill: "🪵",
+  quarry: "⛏️",
+  iron_mine: "⚒️",
+  farm: "🌾",
+  market: "💰",
+  barracks: "⚔️",
+  wall: "🧱",
+  stable: "🐎",
+  workshop: "🔧",
+  keep: "🏰",
+  watchtower: "👁️",
+  granary: "🏚️",
+  warehouse: "📦",
 };
 
 const RESOURCE_ICONS: Record<string, string> = {
-  wood: "\u{1FAB5}",
-  stone: "\u{1FAA8}",
-  iron: "\u2692\uFE0F",
-  gold: "\u{1F4B0}",
+  wood: "🪵",
+  stone: "🪨",
+  iron: "⚒️",
+  gold: "💰",
 };
 
 const RESOURCE_COLORS: Record<string, string> = {
@@ -103,7 +103,7 @@ function CostDisplay({
 
         return (
           <span key={type} className="inline-flex items-center gap-0.5 text-[0.7rem]">
-            <span className="text-[0.65rem]">{RESOURCE_ICONS[type] || ""}</span>
+            <span className="text-fluid-sm">{RESOURCE_ICONS[type] || ""}</span>
             <span
               className="font-semibold"
               style={{ color: hasEnough ? RESOURCE_COLORS[type] : "var(--color-danger-light)" }}
@@ -114,7 +114,7 @@ function CostDisplay({
         );
       })}
       <span className="inline-flex items-center gap-0.5 text-[0.7rem] text-[var(--color-parchment-faint)]">
-        {"\u23F1\uFE0F"}
+        {"⏱️"}
         <span>{cost.ticks}m</span>
       </span>
     </div>
@@ -158,7 +158,7 @@ export default function BuildingPanel({ buildings, resources, onRefresh }: Props
     <div className="space-y-5">
       {error && (
         <div className="flex items-start gap-2 p-2.5 rounded-lg text-xs bg-[var(--color-danger)]/15 border border-[var(--color-danger)]/40 text-[var(--color-danger-light)]">
-          <span className="shrink-0 mt-px">{"\u26A0\uFE0F"}</span>
+          <span className="shrink-0 mt-px">{"⚠️"}</span>
           <span>{error}</span>
         </div>
       )}
@@ -173,7 +173,7 @@ export default function BuildingPanel({ buildings, resources, onRefresh }: Props
               const nextCost = getCost(b.buildingType, b.level);
               const atMax = def && b.level >= def.maxLevel;
               const affordable = nextCost ? canAfford(nextCost, resources) : false;
-              const icon = BUILDING_ICONS[b.buildingType] || "\u{1F3E0}";
+              const icon = BUILDING_ICONS[b.buildingType] || "🏠";
 
               return (
                 <div
@@ -205,7 +205,7 @@ export default function BuildingPanel({ buildings, resources, onRefresh }: Props
                           Lv.{b.level}{def && `/${def.maxLevel}`}
                         </span>
                         {def?.produces && (
-                          <span className="text-[0.65rem] text-[var(--color-success)]">
+                          <span className="text-fluid-sm text-[var(--color-success)]">
                             +{def.produces.baseRate * b.level} {def.produces.resource}/min
                           </span>
                         )}
@@ -250,7 +250,7 @@ export default function BuildingPanel({ buildings, resources, onRefresh }: Props
                         <button
                           onClick={() => handleUpgrade(b.buildingType as BuildingType)}
                           disabled={loading !== null || isAnythingConstructing || !affordable}
-                          className="btn-primary text-[0.65rem] px-2.5 py-1"
+                          className="btn-primary text-fluid-sm px-2.5 py-1"
                         >
                           {loading === b.buildingType ? (
                             <span className="spinner w-3 h-3" />
@@ -278,7 +278,7 @@ export default function BuildingPanel({ buildings, resources, onRefresh }: Props
               const cost = getCost(def.type, 0)!;
               const affordable = canAfford(cost, resources);
               const hasPrereq = def.requires ? builtTypes.has(def.requires) : true;
-              const icon = BUILDING_ICONS[def.type] || "\u{1F3E0}";
+              const icon = BUILDING_ICONS[def.type] || "🏠";
               const canBuild = !loading && !isAnythingConstructing && affordable && hasPrereq;
               const isLocked = !hasPrereq;
 
@@ -294,14 +294,14 @@ export default function BuildingPanel({ buildings, resources, onRefresh }: Props
                     <div className="stat-icon text-base">{icon}</div>
                     <div className="flex-1 min-w-0">
                       <div className="font-semibold text-xs">{def.name}</div>
-                      <div className="text-[0.65rem] text-[var(--color-parchment-faint)] mt-0.5 leading-relaxed">
+                      <div className="text-fluid-sm text-[var(--color-parchment-faint)] mt-0.5 leading-relaxed">
                         {def.description}
                       </div>
                     </div>
                   </div>
 
                   {def.produces && (
-                    <div className="text-[0.65rem] text-[var(--color-success)] mb-1.5">
+                    <div className="text-fluid-sm text-[var(--color-success)] mb-1.5">
                       +{def.produces.baseRate} {def.produces.resource}/min
                     </div>
                   )}
@@ -309,8 +309,8 @@ export default function BuildingPanel({ buildings, resources, onRefresh }: Props
                   <CostDisplay cost={cost} resources={resources} />
 
                   {!hasPrereq && (
-                    <div className="text-[0.65rem] text-[var(--color-danger-light)] mt-1.5 flex items-center gap-1">
-                      <span>{"\u{1F512}"}</span>
+                    <div className="text-fluid-sm text-[var(--color-danger-light)] mt-1.5 flex items-center gap-1">
+                      <span>{"🔒"}</span>
                       Requires {BUILDING_MAP[def.requires!]?.name}
                     </div>
                   )}
@@ -318,7 +318,7 @@ export default function BuildingPanel({ buildings, resources, onRefresh }: Props
                   <button
                     onClick={() => handleBuild(def.type)}
                     disabled={!canBuild}
-                    className="btn-primary text-[0.65rem] px-3 py-1.5 w-full mt-2.5"
+                    className="btn-primary text-fluid-sm px-3 py-1.5 w-full mt-2.5"
                   >
                     {loading === def.type ? (
                       <>

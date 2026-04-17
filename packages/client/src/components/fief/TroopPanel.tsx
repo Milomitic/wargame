@@ -1,6 +1,15 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { TROOPS, TROOP_MAP, type TroopType } from "@wargame/shared";
 import { api } from "../../api/client.js";
+
+const TICK_MS = 60_000;
+
+function formatRemaining(secondsLeft: number): string {
+  const s = Math.max(0, Math.ceil(secondsLeft));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}:${r.toString().padStart(2, "0")}`;
+}
 
 interface TroopData {
   troopType: string;
@@ -8,6 +17,7 @@ interface TroopData {
   isRecruiting: boolean;
   recruitingQuantity: number;
   recruitingTicksRemaining: number;
+  recruitingStartedAt?: number | null;
 }
 
 interface BuildingData {
@@ -31,20 +41,14 @@ interface Props {
   onRefresh: () => void;
 }
 
-const TROOP_ICONS: Record<string, string> = {
-  militia: "\u{1F9D1}\u200D\u{1F33E}",
-  infantry: "\u2694\uFE0F",
-  archer: "\u{1F3F9}",
-  cavalry: "\u{1F40E}",
-  catapult: "\u{1F4A5}",
-};
+import { TROOP_ICONS } from "../../util/troopIcons.js";
 
 const RESOURCE_ICONS: Record<string, string> = {
-  wood: "\u{1FAB5}",
-  stone: "\u{1FAA8}",
-  iron: "\u2692\uFE0F",
-  gold: "\u{1F4B0}",
-  food: "\u{1F33E}",
+  wood: "🪵",
+  stone: "🪨",
+  iron: "⚒️",
+  gold: "💰",
+  food: "🌾",
 };
 
 const RESOURCE_COLORS: Record<string, string> = {
@@ -102,7 +106,7 @@ function CostRow({
 
         return (
           <span key={type} className="inline-flex items-center gap-0.5 text-[0.7rem]">
-            <span className="text-[0.65rem]">{RESOURCE_ICONS[type] || ""}</span>
+            <span className="text-fluid-sm">{RESOURCE_ICONS[type] || ""}</span>
             <span
               className="font-semibold"
               style={{
@@ -117,8 +121,8 @@ function CostRow({
         );
       })}
       <span className="inline-flex items-center gap-0.5 text-[0.7rem] text-[var(--color-parchment-faint)]">
-        {"\u23F1\uFE0F"}
-        <span>{def.baseRecruitTicks * quantity}m</span>
+        {"⏱️"}
+        <span>{def.baseRecruitTicks * quantity}:00</span>
       </span>
     </div>
   );
@@ -128,6 +132,14 @@ export default function TroopPanel({ troops, buildings, resources, onRefresh }: 
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
+  const [nowTs, setNowTs] = useState<number>(() => Date.now());
+
+  useEffect(() => {
+    const anyRecruiting = troops.some((t) => t.isRecruiting);
+    if (!anyRecruiting) return;
+    const id = setInterval(() => setNowTs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [troops]);
 
   const builtBuildings = new Map(
     buildings
@@ -167,7 +179,7 @@ export default function TroopPanel({ troops, buildings, resources, onRefresh }: 
     <div className="space-y-5">
       {error && (
         <div className="flex items-start gap-2 p-2.5 rounded-lg text-xs bg-[var(--color-danger)]/15 border border-[var(--color-danger)]/40 text-[var(--color-danger-light)]">
-          <span className="shrink-0 mt-px">{"\u26A0\uFE0F"}</span>
+          <span className="shrink-0 mt-px">{"⚠️"}</span>
           <span>{error}</span>
         </div>
       )}
@@ -199,7 +211,7 @@ export default function TroopPanel({ troops, buildings, resources, onRefresh }: 
               .filter((t) => t.quantity > 0 || t.isRecruiting)
               .map((t) => {
                 const def = TROOP_MAP[t.troopType];
-                const icon = TROOP_ICONS[t.troopType] || "\u2694\uFE0F";
+                const icon = TROOP_ICONS[t.troopType] || "⚔️";
 
                 return (
                   <div
@@ -229,39 +241,54 @@ export default function TroopPanel({ troops, buildings, resources, onRefresh }: 
                             {t.quantity} units
                           </span>
                           {def && (
-                            <span className="text-[0.6rem] text-[var(--color-parchment-faint)]">
+                            <span className="text-fluid-xs text-[var(--color-parchment-faint)]">
                               ATK {def.attack} &middot; DEF {def.defense}
                             </span>
                           )}
                         </div>
 
-                        {t.isRecruiting && (
-                          <div className="mt-1.5">
-                            <div className="flex items-center justify-between text-[0.65rem] mb-0.5">
-                              <span className="text-[var(--color-construction-light)] font-medium">
-                                Recruiting +{t.recruitingQuantity}
-                              </span>
-                              <span className="text-[var(--color-construction)]">
-                                {t.recruitingTicksRemaining}m left
-                              </span>
+                        {t.isRecruiting && (() => {
+                          const totalTicks =
+                            (def?.baseRecruitTicks || 1) * t.recruitingQuantity;
+                          const totalMs = totalTicks * TICK_MS;
+                          let secondsLeft: number;
+                          let pct: number;
+                          if (t.recruitingStartedAt) {
+                            const elapsed = Math.max(0, nowTs - t.recruitingStartedAt);
+                            secondsLeft = Math.max(0, (totalMs - elapsed) / 1000);
+                            pct = Math.min(100, Math.max(2, (elapsed / totalMs) * 100));
+                          } else {
+                            secondsLeft = t.recruitingTicksRemaining * 60;
+                            pct = Math.max(
+                              2,
+                              ((totalTicks - t.recruitingTicksRemaining) / totalTicks) * 100
+                            );
+                          }
+                          return (
+                            <div className="mt-1.5">
+                              <div className="flex items-center justify-between text-fluid-sm mb-0.5">
+                                <span className="text-[var(--color-construction-light)] font-medium">
+                                  Recruiting +{t.recruitingQuantity}
+                                </span>
+                                <span
+                                  className="text-[var(--color-construction)]"
+                                  style={{ fontVariantNumeric: "tabular-nums" }}
+                                >
+                                  {formatRemaining(secondsLeft)} left
+                                </span>
+                              </div>
+                              <div className="progress-track h-1.5">
+                                <div
+                                  className="progress-fill construction-stripes"
+                                  style={{
+                                    width: `${pct}%`,
+                                    backgroundColor: "var(--color-construction)",
+                                  }}
+                                />
+                              </div>
                             </div>
-                            <div className="progress-track h-1.5">
-                              <div
-                                className="progress-fill construction-stripes"
-                                style={{
-                                  width: `${Math.max(
-                                    100 -
-                                      (t.recruitingTicksRemaining /
-                                        ((def?.baseRecruitTicks || 1) * t.recruitingQuantity)) *
-                                        100,
-                                    5
-                                  )}%`,
-                                  backgroundColor: "var(--color-construction)",
-                                }}
-                              />
-                            </div>
-                          </div>
-                        )}
+                          );
+                        })()}
                       </div>
                     </div>
                   </div>
@@ -276,7 +303,7 @@ export default function TroopPanel({ troops, buildings, resources, onRefresh }: 
         <h3 className="section-title mb-2.5">Recruit</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {TROOPS.map((def) => {
-            const icon = TROOP_ICONS[def.type] || "\u2694\uFE0F";
+            const icon = TROOP_ICONS[def.type] || "⚔️";
             const buildingLevel = builtBuildings.get(def.requiresBuilding) ?? 0;
             const hasPrereq = buildingLevel >= def.requiresBuildingLevel;
             const qty = quantities[def.type] || 1;
@@ -300,11 +327,11 @@ export default function TroopPanel({ troops, buildings, resources, onRefresh }: 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5">
                       <span className="font-semibold text-xs">{def.name}</span>
-                      <span className="text-[0.6rem] text-[var(--color-parchment-faint)]">
+                      <span className="text-fluid-xs text-[var(--color-parchment-faint)]">
                         ATK {def.attack} &middot; DEF {def.defense}
                       </span>
                     </div>
-                    <div className="text-[0.65rem] text-[var(--color-parchment-faint)] mt-0.5 leading-relaxed">
+                    <div className="text-fluid-sm text-[var(--color-parchment-faint)] mt-0.5 leading-relaxed">
                       {def.description}
                     </div>
                   </div>
@@ -320,14 +347,14 @@ export default function TroopPanel({ troops, buildings, resources, onRefresh }: 
                 </div>
 
                 {!hasPrereq && (
-                  <div className="text-[0.65rem] text-[var(--color-danger-light)] mb-2 flex items-center gap-1">
-                    <span>{"\u{1F512}"}</span>
+                  <div className="text-fluid-sm text-[var(--color-danger-light)] mb-2 flex items-center gap-1">
+                    <span>{"🔒"}</span>
                     Requires {def.requiresBuilding} Lv.{def.requiresBuildingLevel}
                   </div>
                 )}
 
                 {isRecruiting && (
-                  <div className="text-[0.65rem] text-[var(--color-construction-light)] mb-2">
+                  <div className="text-fluid-sm text-[var(--color-construction-light)] mb-2">
                     Already recruiting...
                   </div>
                 )}
@@ -368,7 +395,7 @@ export default function TroopPanel({ troops, buildings, resources, onRefresh }: 
                   <button
                     onClick={() => handleRecruit(def.type)}
                     disabled={!canRecruit}
-                    className="btn-primary text-[0.65rem] px-3 py-1.5 flex-1"
+                    className="btn-primary text-fluid-sm px-3 py-1.5 flex-1"
                   >
                     {loading === def.type ? (
                       <>

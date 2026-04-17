@@ -5,5 +5,10 @@ dist/
 *.sqlite-journal
 *.sqlite-wal
 *.sqlite-shm
+*.sqlite.bak_*
 .vite/
 .turbo/
+tsconfig.tsbuildinfo
+# Claude Code session-local files
+.claude/settings.local.json
+.claude/scheduled_tasks.lock

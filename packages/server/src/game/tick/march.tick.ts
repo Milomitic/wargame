@@ -11,80 +11,97 @@ import { resolveCombat } from "../combat/resolver.js";
 import { defeatCamp } from "../../services/camp.service.js";
 import { returnTroops, addLootToFief } from "../../services/march.service.js";
 import { createBattleReport } from "../../services/report.service.js";
+import { getPlayerBonuses } from "../../services/tech.service.js";
+import { awardAttackKills, awardDefenseKills } from "../../services/score.service.js";
+import { createNotification } from "../../services/notification.service.js";
 import type { Server as SocketIOServer } from "socket.io";
 
+function sumLosses(losses: TroopComposition): number {
+  let total = 0;
+  for (const v of Object.values(losses)) total += v ?? 0;
+  return total;
+}
+
 export async function processMarchTick(io: SocketIOServer | null) {
-  // Get all active marches
+  const now = Date.now();
+
+  // ── Marching armies: check wall-clock arrival ──────────────────
   const active = await db
     .select()
     .from(schema.marches)
-    .where(
-      and(
-        eq(schema.marches.status, "marching"),
-      )
-    );
+    .where(eq(schema.marches.status, "marching"));
 
   for (const march of active) {
-    const remaining = march.ticksRemaining - 1;
-
-    if (remaining <= 0) {
-      // March arrived at target — process combat
-      await handleArrival(march, io);
-    } else {
-      // Decrement timer
-      await db
-        .update(schema.marches)
-        .set({ ticksRemaining: remaining })
-        .where(eq(schema.marches.id, march.id));
-
-      if (io) {
-        io.to(`player:${march.playerId}`).emit("march:progress", {
-          marchId: march.id,
-          ticksRemaining: remaining,
-          status: "marching",
-        });
+    try {
+      if (march.arrivesAt <= now) {
+        await handleArrival(march, io);
+      }
+      // No decrement needed — the client animates based on departedAt/arrivesAt.
+    } catch (err) {
+      console.error(`March arrival error for ${march.id}:`, err);
+      // Safety: if overdue by > 2 min, force-return troops so march never stays stuck.
+      if (now - march.arrivesAt > 2 * 60_000) {
+        console.warn(`Force-completing stuck march ${march.id}`);
+        try {
+          const survivors = JSON.parse(march.troopsJson) as TroopComposition;
+          await returnTroops(march.fiefId, survivors);
+          await db
+            .update(schema.marches)
+            .set({ status: "completed", ticksRemaining: 0 })
+            .where(eq(schema.marches.id, march.id));
+        } catch (forceErr) {
+          console.error(`Force-complete also failed for ${march.id}:`, forceErr);
+        }
       }
     }
   }
 
-  // Process returning marches
+  // ── Returning armies: check wall-clock arrival ─────────────────
   const returning = await db
     .select()
     .from(schema.marches)
     .where(eq(schema.marches.status, "returning"));
 
   for (const march of returning) {
-    const remaining = march.ticksRemaining - 1;
+    try {
+      if (march.arrivesAt <= now) {
+        const survivors = JSON.parse(march.troopsJson) as TroopComposition;
+        await returnTroops(march.fiefId, survivors);
 
-    if (remaining <= 0) {
-      // Troops arrived home
-      const survivors = JSON.parse(march.troopsJson) as TroopComposition;
-      await returnTroops(march.fiefId, survivors);
+        await db
+          .update(schema.marches)
+          .set({ status: "completed", ticksRemaining: 0 })
+          .where(eq(schema.marches.id, march.id));
 
-      await db
-        .update(schema.marches)
-        .set({ status: "completed", ticksRemaining: 0 })
-        .where(eq(schema.marches.id, march.id));
-
-      if (io) {
-        io.to(`player:${march.playerId}`).emit("march:progress", {
-          marchId: march.id,
-          ticksRemaining: 0,
-          status: "completed",
+        const totalReturned = Object.values(survivors).reduce((s, q) => s + q, 0);
+        await createNotification({
+          playerId: march.playerId,
+          type: "troops_returned",
+          title: "Troops Returned",
+          body: `${totalReturned} troops returned home from ${march.targetTileId}.`,
+          icon: "\u21A9\uFE0F",
+          relatedId: march.id,
         });
+
+        if (io) {
+          io.to(`player:${march.playerId}`).emit("march:progress", {
+            marchId: march.id,
+            ticksRemaining: 0,
+            status: "completed",
+          });
+        }
       }
-    } else {
-      await db
-        .update(schema.marches)
-        .set({ ticksRemaining: remaining })
-        .where(eq(schema.marches.id, march.id));
-
-      if (io) {
-        io.to(`player:${march.playerId}`).emit("march:progress", {
-          marchId: march.id,
-          ticksRemaining: remaining,
-          status: "returning",
-        });
+    } catch (err) {
+      console.error(`Return tick error for ${march.id}:`, err);
+      if (now - march.arrivesAt > 2 * 60_000) {
+        try {
+          const survivors = JSON.parse(march.troopsJson) as TroopComposition;
+          await returnTroops(march.fiefId, survivors);
+          await db
+            .update(schema.marches)
+            .set({ status: "completed", ticksRemaining: 0 })
+            .where(eq(schema.marches.id, march.id));
+        } catch {}
       }
     }
   }
@@ -115,8 +132,14 @@ async function handleArrival(
     const defenderTroops = JSON.parse(camp.troopsJson) as TroopComposition;
     const lootPool = JSON.parse(camp.lootJson) as Record<string, number>;
 
+    // Get attacker tech bonuses
+    const atkBonuses = await getPlayerBonuses(march.playerId);
+
     // Resolve combat
-    const result = resolveCombat(attackerTroops, defenderTroops, terrain, lootPool);
+    const result = resolveCombat(attackerTroops, defenderTroops, terrain, lootPool, {
+      attackerTechAttack: atkBonuses["attack"] || 0,
+      attackerTechDefense: atkBonuses["defense"] || 0,
+    });
 
     // Create battle report
     const reportId = await createBattleReport({
@@ -133,6 +156,9 @@ async function handleArrival(
       terrainType: terrain,
     });
 
+    // Credit attacker for camp kills (camps have no defender player)
+    await awardAttackKills(march.playerId, sumLosses(result.defenderLosses));
+
     // If attacker won, defeat camp and give loot
     if (result.winner === "attacker") {
       await defeatCamp(camp.id);
@@ -141,11 +167,25 @@ async function handleArrival(
       }
     }
 
+    // Notification for attacker
+    const isVictory = result.winner === "attacker";
+    const totalLosses = sumLosses(result.attackerLosses);
+    await createNotification({
+      playerId: march.playerId,
+      type: isVictory ? "combat_victory" : "combat_defeat",
+      title: isVictory ? "Camp Raid: Victory!" : "Camp Raid: Defeat",
+      body: isVictory
+        ? `Destroyed camp at ${march.targetTileId}${totalLosses > 0 ? `, lost ${totalLosses} troops` : ""}.`
+        : `Failed to take camp at ${march.targetTileId}, lost ${totalLosses} troops.`,
+      icon: isVictory ? "\u{1F3C6}" : "\u{1F480}",
+      relatedId: reportId,
+    });
+
     // Emit combat result
     if (io) {
       io.to(`player:${march.playerId}`).emit("combat:result", {
         reportId,
-        result: result.winner === "attacker" ? "victory" : "defeat",
+        result: isVictory ? "victory" : "defeat",
         loot: result.loot,
         attackerLosses: result.attackerLosses,
         defenderType: "camp",
@@ -238,15 +278,29 @@ async function handlePvPArrival(
     lootPool[res.resourceType] = Math.floor(current * RAID_LOOT_CAP);
   }
 
-  // Resolve combat with wall and offline bonuses
+  // Get tech bonuses for both players
+  const atkBonuses = await getPlayerBonuses(march.playerId);
+  const defBonuses = await getPlayerBonuses(defenderFief.playerId!);
+
+  // Resolve combat with wall, offline, and tech bonuses
   const result = resolveCombat(
     attackerTroops,
     defenderTroops,
     terrain as any,
     lootPool,
-    wallBonus,
-    offlineBonus
+    {
+      wallBonus,
+      offlineBonus,
+      attackerTechAttack: atkBonuses["attack"] || 0,
+      attackerTechDefense: atkBonuses["defense"] || 0,
+      defenderTechDefense: defBonuses["defense"] || 0,
+      defenderTechWall: defBonuses["wall_bonus"] || 0,
+    }
   );
+
+  // Credit kills: attacker gets defender losses, defender (player) gets attacker losses
+  await awardAttackKills(march.playerId, sumLosses(result.defenderLosses));
+  await awardDefenseKills(defenderFief.playerId, sumLosses(result.attackerLosses));
 
   // Apply defender troop losses
   for (const [troopType, lost] of Object.entries(result.defenderLosses)) {
@@ -317,11 +371,43 @@ async function handlePvPArrival(
     terrainType: terrain as any,
   });
 
+  // Notifications for both players
+  const pvpVictory = result.winner === "attacker";
+  const atkLosses = sumLosses(result.attackerLosses);
+  const defLosses = sumLosses(result.defenderLosses);
+  const attackerName = (
+    await db.select().from(schema.players).where(eq(schema.players.id, march.playerId))
+  )[0]?.displayName ?? "Unknown";
+
+  await createNotification({
+    playerId: march.playerId,
+    type: pvpVictory ? "combat_victory" : "combat_defeat",
+    title: pvpVictory ? "Raid: Victory!" : "Raid: Defeat",
+    body: pvpVictory
+      ? `Raided fief at ${march.targetTileId}${atkLosses > 0 ? `, lost ${atkLosses} troops` : ""}.`
+      : `Failed to raid fief at ${march.targetTileId}, lost ${atkLosses} troops.`,
+    icon: pvpVictory ? "\u{1F3C6}" : "\u{1F480}",
+    relatedId: reportId,
+  });
+
+  if (defenderFief.playerId) {
+    await createNotification({
+      playerId: defenderFief.playerId,
+      type: pvpVictory ? "raid_incoming" : "combat_victory",
+      title: pvpVictory ? "Your fief was raided!" : "Raid Defended!",
+      body: pvpVictory
+        ? `${attackerName} raided your fief${defLosses > 0 ? `, you lost ${defLosses} troops` : ""}.`
+        : `${attackerName} attacked but was repelled${defLosses > 0 ? `, you lost ${defLosses} troops` : ""}.`,
+      icon: pvpVictory ? "\u{1F6A8}" : "\u{1F6E1}\uFE0F",
+      relatedId: reportId,
+    });
+  }
+
   // Emit combat result to attacker
   if (io) {
     io.to(`player:${march.playerId}`).emit("combat:result", {
       reportId,
-      result: result.winner === "attacker" ? "victory" : "defeat",
+      result: pvpVictory ? "victory" : "defeat",
       loot: result.loot,
       attackerLosses: result.attackerLosses,
       defenderType: "player",
@@ -333,18 +419,15 @@ async function handlePvPArrival(
     });
 
     // Notify defender of the raid
-    io.to(`player:${defenderFief.playerId}`).emit("combat:raid_incoming", {
-      reportId,
-      attackerName: (
-        await db
-          .select()
-          .from(schema.players)
-          .where(eq(schema.players.id, march.playerId))
-      )[0]?.displayName ?? "Unknown",
-      result: result.winner === "attacker" ? "defeat" : "victory",
-      lootLost: result.winner === "attacker" ? result.loot : null,
-      defenderLosses: result.defenderLosses,
-    });
+    if (defenderFief.playerId) {
+      io.to(`player:${defenderFief.playerId}`).emit("combat:raid_incoming", {
+        reportId,
+        attackerName,
+        result: pvpVictory ? "defeat" : "victory",
+        lootLost: pvpVictory ? result.loot : null,
+        defenderLosses: result.defenderLosses,
+      });
+    }
   }
 
   // Start return with surviving attacker troops
@@ -379,12 +462,17 @@ async function startReturn(
     return;
   }
 
+  const returnDepartedAt = Date.now();
+  const returnArrivesAt = returnDepartedAt + returnTicks * 60_000;
+
   await db
     .update(schema.marches)
     .set({
       status: "returning",
       ticksRemaining: returnTicks,
       troopsJson: JSON.stringify(survivors),
+      departedAt: returnDepartedAt,
+      arrivesAt: returnArrivesAt,
     })
     .where(eq(schema.marches.id, march.id));
 

@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db, schema } from "../db/index.js";
 import { parseTileId } from "@wargame/shared";
 import type { MapFief, MapData } from "@wargame/shared";
@@ -18,6 +18,22 @@ export async function getMapFiefs(requestingPlayerId: string): Promise<MapData> 
     })
     .from(schema.fiefs)
     .leftJoin(schema.players, eq(schema.fiefs.playerId, schema.players.id));
+
+  // Compute score per fief (sum of building levels) + keep level.
+  const buildingAgg = await db
+    .select({
+      fiefId: schema.buildings.fiefId,
+      score: sql<number>`COALESCE(SUM(${schema.buildings.level}), 0)`.as("score"),
+      keepLevel: sql<number>`COALESCE(MAX(CASE WHEN ${schema.buildings.buildingType} = 'keep' THEN ${schema.buildings.level} END), 0)`.as("keep_level"),
+    })
+    .from(schema.buildings)
+    .groupBy(schema.buildings.fiefId);
+  const scoreMap = new Map<string, number>();
+  const keepLevelMap = new Map<string, number>();
+  for (const b of buildingAgg) {
+    scoreMap.set(b.fiefId, Number(b.score));
+    keepLevelMap.set(b.fiefId, Number(b.keepLevel));
+  }
 
   // Build player -> alliance tag map
   const allMembers = await db
@@ -49,12 +65,14 @@ export async function getMapFiefs(requestingPlayerId: string): Promise<MapData> 
       fiefId: r.fiefId,
       fiefName: r.fiefName,
       level: r.level,
+      keepLevel: keepLevelMap.get(r.fiefId) ?? 0,
       population: r.population,
       playerId: r.playerId,
       playerName: r.playerName,
       hasNewbieShield: r.newbieShieldUntil ? r.newbieShieldUntil > now : false,
       allianceTag: allianceInfo?.tag ?? null,
       allianceId: allianceInfo?.allianceId ?? null,
+      score: scoreMap.get(r.fiefId) ?? 0,
     };
   });
 

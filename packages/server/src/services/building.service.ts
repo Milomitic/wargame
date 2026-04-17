@@ -2,6 +2,10 @@ import { nanoid } from "nanoid";
 import { eq, and } from "drizzle-orm";
 import { db, schema } from "../db/index.js";
 import { BUILDING_MAP, type BuildingType } from "@wargame/shared";
+import { deductResources } from "./resource.helper.js";
+
+export const MAX_PARALLEL_CONSTRUCTIONS = 2;
+const CANCEL_REFUND_RATIO = 0.5;
 
 interface BuildResult {
   ok: boolean;
@@ -53,7 +57,7 @@ export async function startConstruction(
     }
   }
 
-  // Check if another building is already under construction
+  // Up to MAX_PARALLEL_CONSTRUCTIONS may be in progress simultaneously
   const constructing = await db
     .select()
     .from(schema.buildings)
@@ -63,8 +67,8 @@ export async function startConstruction(
         eq(schema.buildings.isConstructing, true)
       )
     );
-  if (constructing.length > 0) {
-    return { ok: false, error: "Another building is already under construction" };
+  if (constructing.length >= MAX_PARALLEL_CONSTRUCTIONS) {
+    return { ok: false, error: `Already ${MAX_PARALLEL_CONSTRUCTIONS} buildings under construction` };
   }
 
   // Check and deduct resources
@@ -129,7 +133,7 @@ export async function upgradeBuilding(
     return { ok: false, error: "Building is already at max level" };
   }
 
-  // Check if another building is under construction
+  // Up to MAX_PARALLEL_CONSTRUCTIONS may be in progress simultaneously
   const constructing = await db
     .select()
     .from(schema.buildings)
@@ -139,8 +143,8 @@ export async function upgradeBuilding(
         eq(schema.buildings.isConstructing, true)
       )
     );
-  if (constructing.length > 0) {
-    return { ok: false, error: "Another building is already under construction" };
+  if (constructing.length >= MAX_PARALLEL_CONSTRUCTIONS) {
+    return { ok: false, error: `Already ${MAX_PARALLEL_CONSTRUCTIONS} buildings under construction` };
   }
 
   // Calculate upgrade cost
@@ -180,55 +184,102 @@ export async function upgradeBuilding(
   return { ok: true, building: updated[0] };
 }
 
-async function deductResources(
+// deductResources is now imported from resource.helper.ts — a single shared
+// implementation that applies tech bonuses + building capacity bonuses so the
+// server's affordability check matches the client's display.
+
+export async function cancelConstruction(
   fiefId: string,
-  cost: { wood: number; stone: number; iron: number; gold: number }
-): Promise<{ ok: boolean; error?: string }> {
+  buildingType: BuildingType
+): Promise<{ ok: boolean; error?: string; deleted?: boolean }> {
+  const def = BUILDING_MAP[buildingType];
+  if (!def) {
+    return { ok: false, error: "Unknown building type" };
+  }
+
+  const existing = await db
+    .select()
+    .from(schema.buildings)
+    .where(
+      and(
+        eq(schema.buildings.fiefId, fiefId),
+        eq(schema.buildings.buildingType, buildingType)
+      )
+    );
+
+  const building = existing[0];
+  if (!building) {
+    return { ok: false, error: "Building does not exist" };
+  }
+  if (!building.isConstructing) {
+    return { ok: false, error: "Building is not under construction" };
+  }
+
+  // The level the building had BEFORE this in-progress action started.
+  // For a fresh build, the row was inserted at level 1, so previous level was 0.
+  const previousLevel = building.level - 1;
+
+  // Recompute the cost that was paid when this action started, so we can refund.
+  let paidCost: { wood: number; stone: number; iron: number; gold: number };
+  if (previousLevel === 0) {
+    paidCost = {
+      wood: def.baseCost.wood,
+      stone: def.baseCost.stone,
+      iron: def.baseCost.iron,
+      gold: def.baseCost.gold,
+    };
+  } else {
+    const m = Math.pow(def.costMultiplier, previousLevel);
+    paidCost = {
+      wood: Math.ceil(def.baseCost.wood * m),
+      stone: Math.ceil(def.baseCost.stone * m),
+      iron: Math.ceil(def.baseCost.iron * m),
+      gold: Math.ceil(def.baseCost.gold * m),
+    };
+  }
+
+  await refundResources(fiefId, paidCost, CANCEL_REFUND_RATIO);
+
+  if (previousLevel === 0) {
+    await db.delete(schema.buildings).where(eq(schema.buildings.id, building.id));
+    return { ok: true, deleted: true };
+  }
+
+  await db
+    .update(schema.buildings)
+    .set({
+      level: previousLevel,
+      isConstructing: false,
+      constructionStartedAt: null,
+      constructionTicksRemaining: 0,
+    })
+    .where(eq(schema.buildings.id, building.id));
+
+  return { ok: true, deleted: false };
+}
+
+async function refundResources(
+  fiefId: string,
+  cost: { wood: number; stone: number; iron: number; gold: number },
+  ratio: number
+) {
   const resources = await db
     .select()
     .from(schema.resources)
     .where(eq(schema.resources.fiefId, fiefId));
 
   const now = Date.now();
-  const resMap: Record<string, (typeof resources)[0]> = {};
-  const currentAmounts: Record<string, number> = {};
-
   for (const r of resources) {
-    resMap[r.resourceType] = r;
+    const refund = Math.floor((cost[r.resourceType as keyof typeof cost] || 0) * ratio);
+    if (refund <= 0) continue;
     const elapsed = (now - r.updatedAt) / 60_000;
-    currentAmounts[r.resourceType] = Math.min(
-      r.amount + r.productionRate * elapsed,
-      r.capacity
-    );
-  }
-
-  // Check sufficiency
-  for (const [type, needed] of Object.entries(cost)) {
-    if (needed <= 0) continue;
-    const available = currentAmounts[type] || 0;
-    if (available < needed) {
-      return {
-        ok: false,
-        error: `Not enough ${type}: need ${needed}, have ${Math.floor(available)}`,
-      };
-    }
-  }
-
-  // Deduct
-  for (const [type, needed] of Object.entries(cost)) {
-    if (needed <= 0) continue;
-    const r = resMap[type];
-    if (!r) continue;
+    const current = Math.min(r.amount + r.productionRate * elapsed, r.capacity);
+    const next = Math.min(current + refund, r.capacity);
     await db
       .update(schema.resources)
-      .set({
-        amount: currentAmounts[type] - needed,
-        updatedAt: now,
-      })
+      .set({ amount: next, updatedAt: now })
       .where(eq(schema.resources.id, r.id));
   }
-
-  return { ok: true };
 }
 
 export function getBuildCost(buildingType: string, level: number) {

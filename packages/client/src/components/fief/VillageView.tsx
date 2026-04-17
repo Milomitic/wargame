@@ -14,11 +14,11 @@ interface VillageViewProps {
 }
 
 const BUILDING_ICONS: Record<string, string> = {
-  keep: "\u{1F3F0}", lumbermill: "\u{1FAB5}", quarry: "\u26CF\uFE0F",
-  mine: "\u2692\uFE0F", iron_mine: "\u2692\uFE0F", farm: "\u{1F33E}",
-  market: "\u{1F4B0}", barracks: "\u2694\uFE0F", wall: "\u{1F9F1}",
-  stable: "\u{1F40E}", workshop: "\u{1F527}", watchtower: "\u{1F441}\uFE0F",
-  granary: "\u{1F3DA}\uFE0F", warehouse: "\u{1F4E6}",
+  keep: "🏰", lumbermill: "🪵", quarry: "⛏️",
+  mine: "⚒️", iron_mine: "⚒️", farm: "🌾",
+  market: "💰", barracks: "⚔️", wall: "🧱",
+  stable: "🐎", workshop: "🔧", watchtower: "👁️",
+  granary: "🏚️", warehouse: "📦",
 };
 
 export default function VillageView({ buildings, onBuildingClick, onEmptySlotClick }: VillageViewProps) {
@@ -28,7 +28,7 @@ export default function VillageView({ buildings, onBuildingClick, onEmptySlotCli
     <div className="village-grid">
       {BUILDINGS.map((def) => {
         const built = builtMap.get(def.type);
-        const icon = BUILDING_ICONS[def.type] || "\u{1F3E0}";
+        const icon = BUILDING_ICONS[def.type] || "🏠";
 
         if (built) {
           const isConstructing = built.isConstructing;

@@ -1,4 +1,7 @@
-export const TICK_INTERVAL_MS = 60_000;
+/** Game loop fires every 5 seconds. All completion checks are wall-clock
+ *  based (comparing `arrivesAt` / `constructionStartedAt + duration` to
+ *  Date.now()), so events resolve within ≤5 s of their real deadline. */
+export const TICK_INTERVAL_MS = 5_000;
 export const TICKS_PER_SEASON = 720;
 export const NEWBIE_SHIELD_HOURS = 72;
 export const MAX_RAIDS_PER_24H = 3;

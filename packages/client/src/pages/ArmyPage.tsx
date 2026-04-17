@@ -1,7 +1,19 @@
 import { useEffect, useState, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { api } from "../api/client.js";
-import { TROOP_MAP, parseTileId, type BattleReport, type TroopComposition } from "@wargame/shared";
+import { parseTileId, TROOP_MAP, type TroopComposition } from "@wargame/shared";
 import { useSocket } from "../hooks/useSocket.js";
+import { CoordLink } from "../components/CoordLink.js";
+import { PlayerLink } from "../components/PlayerLink.js";
+import { VillageLink } from "../components/VillageLink.js";
+import { TROOP_ICONS } from "../util/troopIcons.js";
+
+function formatRemaining(secondsLeft: number): string {
+  const s = Math.max(0, Math.ceil(secondsLeft));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}:${r.toString().padStart(2, "0")}`;
+}
 
 interface MarchData {
   id: string;
@@ -14,44 +26,77 @@ interface MarchData {
   ticksRemaining: number;
   departedAt: number;
   arrivesAt: number;
+  targetFiefName: string | null;
+  targetPlayerName: string | null;
+  targetPlayerId: string | null;
 }
 
-const STATUS_LABELS: Record<string, { label: string; color: string }> = {
-  marching: { label: "Marching", color: "var(--color-construction-light)" },
-  returning: { label: "Returning", color: "var(--color-info-light)" },
-  completed: { label: "Completed", color: "var(--color-success)" },
-};
+interface IncomingMarch {
+  id: string;
+  playerId: string;
+  attackerName: string;
+  attackerFiefName: string | null;
+  originTileId: string;
+  targetTileId: string;
+  arrivesAt: number;
+}
 
-const TROOP_ICONS: Record<string, string> = {
-  militia: "\u{1F9D1}\u200D\u{1F33E}",
-  infantry: "\u2694\uFE0F",
-  archer: "\u{1F3F9}",
-  cavalry: "\u{1F40E}",
-  catapult: "\u{1F4A5}",
-};
+interface FiefSummary {
+  population: number;
+  morale: number;
+  level: number;
+}
 
-const RESOURCE_ICONS: Record<string, string> = {
-  wood: "\u{1FAB5}",
-  stone: "\u{1FAA8}",
-  iron: "\u2692\uFE0F",
-  gold: "\u{1F4B0}",
-  food: "\u{1F33E}",
+interface PlayerStats {
+  score: number;
+  attackKills: number;
+  defenseKills: number;
+}
+
+interface TroopRow {
+  troopType: string;
+  quantity: number;
+}
+
+const STATUS_LABELS: Record<string, { label: string; icon: string; color: string }> = {
+  marching:  { label: "Marching",  icon: "⚔️", color: "var(--color-construction-light)" },
+  returning: { label: "Returning", icon: "↩️", color: "var(--color-info-light)" },
+  completed: { label: "Completed", icon: "✔️", color: "var(--color-success)" },
 };
 
 export default function ArmyPage() {
+  const navigate = useNavigate();
   const [marches, setMarches] = useState<MarchData[]>([]);
-  const [reports, setReports] = useState<BattleReport[]>([]);
+  const [incoming, setIncoming] = useState<IncomingMarch[]>([]);
+  const [troops, setTroops] = useState<TroopRow[]>([]);
+  const [fief, setFief] = useState<FiefSummary | null>(null);
+  const [stats, setStats] = useState<PlayerStats | null>(null);
   const [loading, setLoading] = useState(true);
-  const [selectedReport, setSelectedReport] = useState<BattleReport | null>(null);
+  const [nowTs, setNowTs] = useState<number>(() => Date.now());
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+
+  const CANCEL_WINDOW_MS = 5 * 60 * 1000;
+
+  useEffect(() => {
+    const anyActive = marches.some((m) => m.status !== "completed");
+    if (!anyActive && incoming.length === 0) return;
+    const id = setInterval(() => setNowTs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [marches, incoming]);
 
   const loadData = useCallback(async () => {
     try {
-      const [marchRes, reportRes] = await Promise.all([
+      const [marchRes, incomingRes, fiefRes] = await Promise.all([
         api.get<{ marches: MarchData[] }>("/marches"),
-        api.get<{ reports: BattleReport[] }>("/battle-reports"),
+        api
+          .get<{ incoming: IncomingMarch[] }>("/marches/incoming")
+          .catch(() => ({ incoming: [] as IncomingMarch[] })),
+        api.get<{ fief: FiefSummary; troops: TroopRow[] }>("/fief"),
       ]);
       setMarches(marchRes.marches);
-      setReports(reportRes.reports);
+      setIncoming(incomingRes.incoming || []);
+      setTroops(fiefRes.troops || []);
+      setFief(fiefRes.fief);
     } catch {
       // silent
     } finally {
@@ -59,13 +104,47 @@ export default function ArmyPage() {
     }
   }, []);
 
-  useEffect(() => {
-    loadData();
-    const interval = setInterval(loadData, 30_000);
-    return () => clearInterval(interval);
+  const loadStats = useCallback(async () => {
+    try {
+      const me = await api.get<{ player: { id: string } }>("/auth/me");
+      const profile = await api.get<{
+        profile: { score: number; attackKills: number; defenseKills: number };
+      }>(`/players/${me.player.id}/profile`);
+      setStats({
+        score: profile.profile.score,
+        attackKills: profile.profile.attackKills,
+        defenseKills: profile.profile.defenseKills,
+      });
+    } catch {
+      // silent
+    }
+  }, []);
+
+  const handleCancelMarch = useCallback(async (marchId: string) => {
+    const ok = window.confirm("Recall this army? Troops will return to garrison immediately.");
+    if (!ok) return;
+    setCancellingId(marchId);
+    try {
+      await api.post(`/marches/${marchId}/cancel`, {});
+      await loadData();
+    } catch (err: any) {
+      alert(err.message || "Failed to cancel march");
+    } finally {
+      setCancellingId(null);
+    }
   }, [loadData]);
 
-  // Listen for march and combat events
+  useEffect(() => {
+    loadData();
+    loadStats();
+    const interval = setInterval(loadData, 30_000);
+    const statsInt = setInterval(loadStats, 60_000);
+    return () => {
+      clearInterval(interval);
+      clearInterval(statsInt);
+    };
+  }, [loadData, loadStats]);
+
   useSocket(
     "march:progress",
     useCallback(
@@ -86,258 +165,345 @@ export default function ArmyPage() {
     "combat:result",
     useCallback(() => {
       loadData();
-    }, [loadData])
+      loadStats();
+    }, [loadData, loadStats])
   );
 
   if (loading) {
     return (
       <div className="h-full flex items-center justify-center gap-3">
         <div className="spinner w-8 h-8" />
-        <span className="text-sm text-[var(--text-muted)]">Loading...</span>
+        <span className="text-sm text-[var(--text-muted)]">Loading army...</span>
       </div>
     );
   }
 
   const activeMarches = marches.filter((m) => m.status !== "completed");
+  const totalTroops = troops.reduce((s, t) => s + t.quantity, 0);
+  const totalAtk = troops.reduce(
+    (s, t) => s + (TROOP_MAP[t.troopType]?.attack ?? 0) * t.quantity,
+    0
+  );
+  const totalDef = troops.reduce(
+    (s, t) => s + (TROOP_MAP[t.troopType]?.defense ?? 0) * t.quantity,
+    0
+  );
 
   return (
-    <div className="p-4 sm:p-5 space-y-4 animate-fade-in">
-      {/* Active Marches */}
-      <div className="card p-4 sm:p-5">
-        <h2 className="font-title text-base font-bold text-[var(--color-gold)] flex items-center gap-2 mb-4">
-          <span>{"\u{1F6E1}\uFE0F"}</span> Active Marches
-          {activeMarches.length > 0 && (
-            <span className="alert-badge alert-badge--building">
-              {activeMarches.length} active
-            </span>
-          )}
-        </h2>
-
-        {activeMarches.length === 0 ? (
-          <p className="text-xs text-[var(--text-muted)] italic">
-            No active marches. Attack a barbarian camp from the map to send your army.
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {activeMarches.map((m) => {
+    <div className="army-page">
+      {/* ── Incoming attacks banner (full width, only when under attack) ── */}
+      {incoming.length > 0 && (
+        <div className="army-incoming">
+          <div className="army-incoming__header">
+            <span className="army-incoming__icon">🚨</span>
+            <span className="army-incoming__title">Incoming Attacks</span>
+            <span className="army-incoming__count">{incoming.length}</span>
+          </div>
+          <div className="army-incoming__list">
+            {incoming.map((m) => {
               const target = parseTileId(m.targetTileId);
-              const statusInfo = STATUS_LABELS[m.status] || {
-                label: m.status,
-                color: "var(--text-muted)",
-              };
-
+              const secondsLeft = Math.max(0, (m.arrivesAt - nowTs) / 1000);
+              const arrivalTime = new Date(m.arrivesAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
               return (
-                <div
-                  key={m.id}
-                  className="rounded-lg p-3 border bg-[var(--surface-0)]/50 border-[var(--border-muted)] animate-pulse-glow"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <span style={{ color: statusInfo.color }} className="text-xs font-semibold">
-                        {statusInfo.label}
-                      </span>
-                      <span className="text-[0.65rem] text-[var(--text-muted)]">
-                        {m.marchType === "attack_camp" ? "Attacking Camp" : "March"}
-                      </span>
+                <div key={m.id} className="army-incoming__row">
+                  <div className="army-incoming__who">
+                    <div className="army-incoming__player-row">
+                      {"☠️"}{" "}
+                      <PlayerLink playerId={m.playerId} name={m.attackerName} className="text-[var(--color-danger-light)]" />
                     </div>
-                    <span className="text-[0.65rem] font-mono text-[var(--text-muted)]">
-                      ({target.x}, {target.y})
-                    </span>
+                    {m.attackerFiefName && (
+                      <div className="army-incoming__village-row">
+                        <VillageLink
+                          name={m.attackerFiefName}
+                          x={Number(m.originTileId.split(",")[0])}
+                          y={Number(m.originTileId.split(",")[1])}
+                        />
+                      </div>
+                    )}
                   </div>
-
-                  {/* Troops in march */}
-                  <div className="flex flex-wrap gap-2 mb-2">
-                    {Object.entries(m.troops).map(([type, qty]) => (
-                      <span
-                        key={type}
-                        className="inline-flex items-center gap-1 text-[0.65rem] bg-[var(--surface-1)] px-1.5 py-0.5 rounded border border-[var(--border-muted)]"
-                      >
-                        <span>{TROOP_ICONS[type] || "\u2694\uFE0F"}</span>
-                        <span className="font-semibold">{qty}</span>
-                      </span>
-                    ))}
-                  </div>
-
-                  {/* Progress bar */}
-                  <div className="flex items-center justify-between text-[0.6rem] mb-1">
-                    <span className="text-[var(--text-muted)]">
-                      {m.status === "returning" ? "Returning home" : "En route"}
-                    </span>
-                    <span style={{ color: statusInfo.color }}>
-                      {m.ticksRemaining}m remaining
-                    </span>
-                  </div>
-                  <div className="progress-track h-1.5">
-                    <div
-                      className="progress-fill construction-stripes"
-                      style={{
-                        width: `${Math.max(5, 100 - (m.ticksRemaining / Math.max(1, m.ticksRemaining + 1)) * 100)}%`,
-                        backgroundColor: statusInfo.color,
-                      }}
-                    />
+                  <div className="army-incoming__when">
+                    <span className="army-incoming__eta">{formatRemaining(secondsLeft)}</span>
+                    <span className="army-incoming__arrival-time">· 🕐 {arrivalTime}</span>
                   </div>
                 </div>
               );
             })}
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
-      {/* Battle Reports */}
-      <div className="card p-4 sm:p-5">
-        <h2 className="font-title text-base font-bold text-[var(--color-gold)] flex items-center gap-2 mb-4">
-          <span>{"\u{1F4DC}"}</span> Battle Reports
-        </h2>
-
-        {reports.length === 0 ? (
-          <p className="text-xs text-[var(--text-muted)] italic">
-            No battles fought yet.
-          </p>
-        ) : (
-          <div className="space-y-1.5">
-            {reports.map((r) => {
-              const loc = parseTileId(r.tileId);
-              const isVictory = r.result === "victory";
-              const totalLosses = Object.values(r.attackerLosses).reduce(
-                (s, q) => s + q,
-                0
-              );
-              const timeAgo = formatTimeAgo(r.createdAt);
-
-              return (
+      {/* ── Top row: Garrison (left) + Active Marches (right) ── */}
+      <div className="army-top">
+        {/* Garrison column */}
+        <div className="army-card army-card--garrison">
+          <div className="army-card__header">
+            <span className="army-card__header-icon">🏰</span>
+            <span className="army-card__header-title">Garrison</span>
+            <span className="army-card__header-badge">{totalTroops}</span>
+            {fief && (
+              <span className="army-card__header-sub ml-auto">
+                👥 {fief.population} · ❤️ {fief.morale}%
+              </span>
+            )}
+          </div>
+          <div className="army-card__body">
+            {totalTroops === 0 ? (
+              <div className="army-empty">
+                <span className="army-empty__icon">🛡️</span>
+                <p className="army-empty__text">
+                  No troops stationed. Recruit in the Barracks.
+                </p>
                 <button
-                  key={r.id}
-                  onClick={() => setSelectedReport(selectedReport?.id === r.id ? null : r)}
-                  className={`w-full text-left rounded-lg p-3 border transition-all ${
-                    isVictory
-                      ? "bg-[var(--color-success)]/5 border-[var(--color-success)]/20 hover:border-[var(--color-success)]/40"
-                      : "bg-[var(--color-danger)]/5 border-[var(--color-danger)]/20 hover:border-[var(--color-danger)]/40"
-                  } ${selectedReport?.id === r.id ? "ring-1 ring-[var(--color-gold)]/40" : ""}`}
+                  onClick={() => navigate("/dashboard?b=barracks")}
+                  className="btn-primary btn-sm"
                 >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm">
-                        {isVictory ? "\u{1F3C6}" : "\u{1F480}"}
-                      </span>
-                      <span
-                        className="text-xs font-bold"
-                        style={{
-                          color: isVictory
-                            ? "var(--color-success)"
-                            : "var(--color-danger-light)",
-                        }}
-                      >
-                        {isVictory ? "Victory" : "Defeat"}
-                      </span>
-                      <span className="text-[0.65rem] text-[var(--text-muted)]">
-                        vs {r.defenderType === "camp" ? "Barbarian Camp" : "Player"}
-                      </span>
-                    </div>
-                    <div className="text-[0.6rem] text-[var(--text-muted)]">
-                      ({loc.x},{loc.y}) &middot; {timeAgo}
-                    </div>
-                  </div>
-
-                  {totalLosses > 0 && (
-                    <div className="text-[0.6rem] text-[var(--color-danger-light)] mt-1">
-                      -{totalLosses} casualties
-                    </div>
-                  )}
-
-                  {/* Expanded detail */}
-                  {selectedReport?.id === r.id && (
-                    <div className="mt-3 pt-3 border-t border-[var(--border-muted)] space-y-3">
-                      {/* Attacker forces */}
-                      <div>
-                        <div className="stat-label mb-1">Your Forces</div>
-                        <div className="space-y-0.5">
-                          {Object.entries(r.attackerTroops).map(([type, qty]) => {
-                            const lost = r.attackerLosses[type] || 0;
-                            return (
-                              <div key={type} className="flex items-center justify-between text-[0.65rem]">
-                                <span className="flex items-center gap-1">
-                                  <span>{TROOP_ICONS[type] || "\u2694\uFE0F"}</span>
-                                  {TROOP_MAP[type]?.name || type}
-                                </span>
-                                <span>
-                                  <span className="text-[var(--text-secondary)]">{qty}</span>
-                                  {lost > 0 && (
-                                    <span className="text-[var(--color-danger-light)] ml-1">
-                                      (-{lost})
-                                    </span>
-                                  )}
-                                </span>
-                              </div>
-                            );
-                          })}
+                  ⚔️ Recruit Troops
+                </button>
+              </div>
+            ) : (
+              <div className="army-troop-grid">
+                {troops
+                  .filter((t) => t.quantity > 0)
+                  .map((t) => {
+                    const def = TROOP_MAP[t.troopType];
+                    return (
+                      <div key={t.troopType} className="army-troop">
+                        <span className="army-troop__icon">
+                          {TROOP_ICONS[t.troopType] || "⚔️"}
+                        </span>
+                        <div className="army-troop__info">
+                          <span className="army-troop__name">
+                            {def?.name || t.troopType}
+                          </span>
+                          <span className="army-troop__stats">
+                            ATK {def?.attack ?? 0} · DEF {def?.defense ?? 0}
+                          </span>
                         </div>
+                        <span className="army-troop__qty">
+                          ×{t.quantity}
+                        </span>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Active Marches column */}
+        <div className="army-card army-card--marches">
+          <div className="army-card__header">
+            <span className="army-card__header-icon">🗺️</span>
+            <span className="army-card__header-title">Active Marches</span>
+            {activeMarches.length > 0 && (
+              <span className="army-card__header-badge army-card__header-badge--march">
+                {activeMarches.length}
+              </span>
+            )}
+          </div>
+          <div className="army-card__body">
+            {activeMarches.length === 0 ? (
+              <div className="army-empty">
+                <span className="army-empty__icon">🗺️</span>
+                <p className="army-empty__text">
+                  No active marches. Attack from the world map.
+                </p>
+                <button
+                  onClick={() => navigate("/map")}
+                  className="btn-primary btn-sm"
+                >
+                  🗺️ Open Map
+                </button>
+              </div>
+            ) : (
+              <div className="army-march-list">
+                {activeMarches.map((m) => {
+                  const origin = parseTileId(m.originTileId);
+                  const target = parseTileId(m.targetTileId);
+                  const distance = Math.abs(target.x - origin.x) + Math.abs(target.y - origin.y);
+                  const statusInfo = STATUS_LABELS[m.status] || {
+                    label: m.status,
+                    icon: "📍",
+                    color: "var(--text-muted)",
+                  };
+                  const totalMs = Math.max(1, m.arrivesAt - m.departedAt);
+                  const elapsed = Math.max(0, nowTs - m.departedAt);
+                  const secondsLeft = Math.max(0, (m.arrivesAt - nowTs) / 1000);
+                  const pct = Math.min(100, Math.max(2, (elapsed / totalMs) * 100));
+                  const marchUnits = Object.values(m.troops).reduce((s, q) => s + q, 0);
+                  const marchAtk = Object.entries(m.troops).reduce(
+                    (s, [t, q]) => s + (TROOP_MAP[t]?.attack ?? 0) * q, 0
+                  );
+                  const marchDef = Object.entries(m.troops).reduce(
+                    (s, [t, q]) => s + (TROOP_MAP[t]?.defense ?? 0) * q, 0
+                  );
+                  const canCancel = m.status === "marching" && (nowTs - m.departedAt) < CANCEL_WINDOW_MS;
+                  const cancelRemainSec = canCancel
+                    ? Math.max(0, Math.ceil((CANCEL_WINDOW_MS - (nowTs - m.departedAt)) / 1000))
+                    : 0;
+
+                  return (
+                    <div key={m.id} className="army-march" onClick={() => navigate(`/march/${m.id}`)}>
+                      {/* Header row: status + type */}
+                      <div className="army-march__top">
+                        <span
+                          className="army-march__status"
+                          style={{ color: statusInfo.color }}
+                        >
+                          {statusInfo.icon} {statusInfo.label}
+                        </span>
+                        <span className="army-march__type">
+                          {m.marchType === "attack_camp"
+                            ? "🏕️ Camp Raid"
+                            : m.marchType === "attack_player"
+                            ? "⚔️ Player Attack"
+                            : "March"}
+                        </span>
                       </div>
 
-                      {/* Defender forces */}
-                      <div>
-                        <div className="stat-label mb-1">Enemy Forces</div>
-                        <div className="space-y-0.5">
-                          {Object.entries(r.defenderTroops).map(([type, qty]) => {
-                            const lost = r.defenderLosses[type] || 0;
-                            return (
-                              <div key={type} className="flex items-center justify-between text-[0.65rem]">
-                                <span className="flex items-center gap-1">
-                                  <span>{TROOP_ICONS[type] || "\u2694\uFE0F"}</span>
-                                  {TROOP_MAP[type]?.name || type}
-                                </span>
-                                <span>
-                                  <span className="text-[var(--text-secondary)]">{qty}</span>
-                                  {lost > 0 && (
-                                    <span className="text-[var(--color-danger-light)] ml-1">
-                                      (-{lost})
-                                    </span>
-                                  )}
-                                </span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      {/* Loot */}
-                      {r.loot && Object.keys(r.loot).length > 0 && (
-                        <div>
-                          <div className="stat-label mb-1">Loot Gained</div>
-                          <div className="flex flex-wrap gap-2">
-                            {Object.entries(r.loot).map(([type, amount]) => (
-                              <span
-                                key={type}
-                                className="inline-flex items-center gap-0.5 text-[0.65rem] text-[var(--color-success)]"
-                              >
-                                <span>{RESOURCE_ICONS[type] || ""}</span>
-                                +{amount}
-                              </span>
-                            ))}
+                      {/* Target identity: Player (top) → Village [coords] (below) */}
+                      <div className="army-march__identity">
+                        {m.targetPlayerName && m.targetPlayerId && (
+                          <div className="army-march__player-row">
+                            <span>→</span>
+                            <PlayerLink playerId={m.targetPlayerId} name={m.targetPlayerName} />
                           </div>
+                        )}
+                        <div className="army-march__village-row">
+                          {m.targetFiefName ? (
+                            <VillageLink name={m.targetFiefName} x={target.x} y={target.y} />
+                          ) : (
+                            <span className="text-fluid-xs text-[var(--text-muted)]">[{target.x}, {target.y}]</span>
+                          )}
+                          <span className="army-march__distance">· {distance} tiles</span>
+                        </div>
+                      </div>
+
+                      {/* Timing: ETA + arrival clock */}
+                      <div className="army-march__timing-row">
+                        <span className="army-march__eta-inline">
+                          ETA {formatRemaining(secondsLeft)}
+                        </span>
+                        <span className="army-march__arrival-time">
+                          · 🕐 {new Date(m.arrivesAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
+                        </span>
+                      </div>
+
+                      {/* Troops */}
+                      <div className="army-march__troops">
+                        {Object.entries(m.troops).map(([type, qty]) => {
+                          const def = TROOP_MAP[type];
+                          return (
+                            <span key={type} className="army-march__troop-pill" title={def?.name || type}>
+                              {TROOP_ICONS[type] || "⚔️"} {qty}
+                            </span>
+                          );
+                        })}
+                      </div>
+
+                      {/* Progress bar with time inside */}
+                      <div className="army-march__bar-row">
+                        <div className="army-march__bar army-march__bar--labeled">
+                          <div
+                            className="army-march__bar-fill"
+                            style={{
+                              width: `${pct}%`,
+                              backgroundColor: statusInfo.color,
+                            }}
+                          />
+                          <span className="army-march__bar-text">
+                            {formatRemaining(secondsLeft)} — {Math.round(pct)}%
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Recall link (subtle, only within 5 min window) */}
+                      {canCancel && (
+                        <div className="army-march__cancel-row">
+                          <button
+                            className="army-march__cancel-link"
+                            disabled={cancellingId === m.id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleCancelMarch(m.id);
+                            }}
+                          >
+                            {cancellingId === m.id ? (
+                              <span className="spinner w-3 h-3" />
+                            ) : (
+                              <>↩ Recall ({Math.floor(cancelRemainSec / 60)}:{(cancelRemainSec % 60).toString().padStart(2, "0")})</>
+                            )}
+                          </button>
                         </div>
                       )}
-
-                      <div className="text-[0.55rem] text-[var(--text-muted)]">
-                        Terrain: {r.terrainType}
-                      </div>
                     </div>
-                  )}
-                </button>
-              );
-            })}
+                  );
+                })}
+              </div>
+            )}
           </div>
-        )}
+        </div>
+      </div>
+
+      {/* ── Stats row (below) ── */}
+      <div className="army-stats">
+        <div className="army-stat">
+          <span className="army-stat__icon">⚔️</span>
+          <div className="army-stat__body">
+            <span className="army-stat__val" style={{ color: "var(--color-danger)" }}>
+              {totalAtk.toLocaleString()}
+            </span>
+            <span className="army-stat__label">Total ATK</span>
+          </div>
+        </div>
+        <div className="army-stat">
+          <span className="army-stat__icon">🛡️</span>
+          <div className="army-stat__body">
+            <span className="army-stat__val" style={{ color: "var(--color-info)" }}>
+              {totalDef.toLocaleString()}
+            </span>
+            <span className="army-stat__label">Total DEF</span>
+          </div>
+        </div>
+        <div className="army-stat">
+          <span className="army-stat__icon">🏆</span>
+          <div className="army-stat__body">
+            <span className="army-stat__val" style={{ color: "var(--color-gold)" }}>
+              {(stats?.score ?? 0).toLocaleString()}
+            </span>
+            <span className="army-stat__label">Score</span>
+          </div>
+        </div>
+        <div className="army-stat">
+          <span className="army-stat__icon">💥</span>
+          <div className="army-stat__body">
+            <span className="army-stat__val" style={{ color: "var(--color-danger-light)" }}>
+              {(stats?.attackKills ?? 0).toLocaleString()}
+            </span>
+            <span className="army-stat__label">Attack Kills</span>
+          </div>
+        </div>
+        <div className="army-stat">
+          <span className="army-stat__icon">🛡️</span>
+          <div className="army-stat__body">
+            <span className="army-stat__val" style={{ color: "var(--color-info-light)" }}>
+              {(stats?.defenseKills ?? 0).toLocaleString()}
+            </span>
+            <span className="army-stat__label">Defense Kills</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div className="army-footer">
+        📜{" "}
+        <button
+          onClick={() => navigate("/inbox?tab=reports")}
+          className="army-footer__link"
+        >
+          Battle Reports
+        </button>
       </div>
     </div>
   );
-}
-
-function formatTimeAgo(timestamp: number): string {
-  const diff = Date.now() - timestamp;
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
 }

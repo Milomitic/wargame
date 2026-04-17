@@ -7,6 +7,10 @@ export const alliances = sqliteTable("alliances", {
   description: text("description").notNull().default(""),
   leaderId: text("leader_id").notNull(),
   createdAt: integer("created_at").notNull(),
+  /** Avatar/banner identifier (one of a fixed set of presets) */
+  avatar: text("avatar").notNull().default("banner_red"),
+  /** Long-form manifesto shown on the alliance profile page */
+  manifesto: text("manifesto").notNull().default(""),
 });
 
 export const allianceMembers = sqliteTable("alliance_members", {

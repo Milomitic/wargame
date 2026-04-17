@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAuthStore } from "../stores/authStore.js";
 
 export default function LoginPage() {
-  const [email, setEmail] = useState("");
+  const [loginInput, setLoginInput] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const login = useAuthStore((s) => s.login);
@@ -14,7 +14,7 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     try {
-      await login(email, password);
+      await login(loginInput, password);
       navigate("/dashboard");
     } catch {
       // error is set in store
@@ -45,7 +45,7 @@ export default function LoginPage() {
         {/* Crown icon */}
         <div className="text-center mb-5">
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-full border border-[var(--border-default)] bg-[var(--surface-2)] glow-gold">
-            <span className="text-2xl">{"\u{1F3F0}"}</span>
+            <span className="text-2xl">{"🏰"}</span>
           </div>
         </div>
 
@@ -61,27 +61,27 @@ export default function LoginPage() {
 
           {error && (
             <div className="flex items-start gap-2 p-2.5 mb-4 rounded-lg text-xs bg-[var(--color-danger)]/15 border border-[var(--color-danger)]/40 text-[var(--color-danger-light)]">
-              <span className="shrink-0 mt-px">{"\u26A0\uFE0F"}</span>
+              <span className="shrink-0 mt-px">{"⚠️"}</span>
               <span>{error}</span>
             </div>
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-[0.65rem] font-bold uppercase tracking-[0.1em] mb-1.5 text-[var(--color-parchment-faint)]">
-                Email
+              <label className="block text-fluid-sm font-bold uppercase tracking-[0.1em] mb-1.5 text-[var(--color-parchment-faint)]">
+                Email or Username
               </label>
               <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                type="text"
+                value={loginInput}
+                onChange={(e) => setLoginInput(e.target.value)}
                 required
-                placeholder="lord@kingdom.com"
+                placeholder="lord@kingdom.com or your_username"
                 className="input-field"
               />
             </div>
             <div>
-              <label className="block text-[0.65rem] font-bold uppercase tracking-[0.1em] mb-1.5 text-[var(--color-parchment-faint)]">
+              <label className="block text-fluid-sm font-bold uppercase tracking-[0.1em] mb-1.5 text-[var(--color-parchment-faint)]">
                 Password
               </label>
               <input
@@ -115,6 +115,13 @@ export default function LoginPage() {
             </Link>
           </p>
         </div>
+      </div>
+
+      {/* Footer */}
+      <div className="absolute bottom-0 left-0 right-0 text-center py-3">
+        <p className="text-fluid-xs text-[var(--text-muted)] opacity-40 tracking-wide">
+          Medieval Wargame v0.1 &middot; {"⚔️"} Build. Conquer. Rule.
+        </p>
       </div>
     </div>
   );

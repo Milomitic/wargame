@@ -6,6 +6,9 @@ interface PlayerInfo {
   username: string;
   displayName: string;
   email: string;
+  avatar?: string;
+  bio?: string;
+  isAdmin?: boolean;
 }
 
 interface AuthState {
@@ -18,9 +21,10 @@ interface AuthState {
     password: string;
     displayName: string;
   }) => Promise<void>;
-  login: (email: string, password: string) => Promise<void>;
+  login: (login: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
+  updatePlayer: (patch: Partial<PlayerInfo>) => void;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
@@ -39,11 +43,11 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
   },
 
-  login: async (email, password) => {
+  login: async (login, password) => {
     set({ error: null });
     try {
       const res = await api.post<{ player: PlayerInfo }>("/auth/login", {
-        email,
+        login,
         password,
       });
       set({ player: res.player });
@@ -66,5 +70,11 @@ export const useAuthStore = create<AuthState>((set) => ({
     } catch {
       set({ player: null, isLoading: false });
     }
+  },
+
+  updatePlayer: (patch) => {
+    set((s) => ({
+      player: s.player ? { ...s.player, ...patch } : s.player,
+    }));
   },
 }));

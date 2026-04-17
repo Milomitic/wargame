@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { nanoid } from "nanoid";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { registerSchema, loginSchema, NEWBIE_SHIELD_HOURS } from "@wargame/shared";
 import { db, schema } from "../db/index.js";
 import { hashPassword, verifyPassword } from "../auth/password.js";
@@ -17,10 +17,12 @@ export async function authRoutes(app: FastifyInstance) {
 
     const { username, email, password, displayName } = parsed.data;
 
+    // Case-insensitive uniqueness checks so "Milomitic" and "milomitic"
+    // cannot coexist as different accounts.
     const existingUser = await db
       .select({ id: schema.players.id })
       .from(schema.players)
-      .where(eq(schema.players.username, username))
+      .where(sql`LOWER(${schema.players.username}) = ${username.toLowerCase()}`)
       .limit(1);
     if (existingUser.length > 0) {
       return reply.status(409).send({ error: "Username already taken" });
@@ -29,7 +31,7 @@ export async function authRoutes(app: FastifyInstance) {
     const existingEmail = await db
       .select({ id: schema.players.id })
       .from(schema.players)
-      .where(eq(schema.players.email, email))
+      .where(sql`LOWER(${schema.players.email}) = ${email.toLowerCase()}`)
       .limit(1);
     if (existingEmail.length > 0) {
       return reply.status(409).send({ error: "Email already registered" });
@@ -80,22 +82,30 @@ export async function authRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: parsed.error.issues[0].message });
     }
 
-    const { email, password } = parsed.data;
+    const { login: loginInput, password } = parsed.data;
 
+    // Case-insensitive username/email lookup — usernames like "Milomitic"
+    // must match regardless of how the user typed them on the login form.
+    const isEmail = loginInput.includes("@");
+    const loginLower = loginInput.toLowerCase();
     const players = await db
       .select()
       .from(schema.players)
-      .where(eq(schema.players.email, email))
+      .where(
+        isEmail
+          ? sql`LOWER(${schema.players.email}) = ${loginLower}`
+          : sql`LOWER(${schema.players.username}) = ${loginLower}`
+      )
       .limit(1);
 
     const player = players[0];
     if (!player) {
-      return reply.status(401).send({ error: "Invalid email or password" });
+      return reply.status(401).send({ error: "Invalid credentials" });
     }
 
     const valid = await verifyPassword(player.passwordHash, password);
     if (!valid) {
-      return reply.status(401).send({ error: "Invalid email or password" });
+      return reply.status(401).send({ error: "Invalid credentials" });
     }
 
     await db
@@ -146,6 +156,9 @@ export async function authRoutes(app: FastifyInstance) {
           username: schema.players.username,
           displayName: schema.players.displayName,
           email: schema.players.email,
+          avatar: schema.players.avatar,
+          bio: schema.players.bio,
+          isAdmin: schema.players.isAdmin,
           createdAt: schema.players.createdAt,
           newbieShieldUntil: schema.players.newbieShieldUntil,
           tutorialStep: schema.players.tutorialStep,

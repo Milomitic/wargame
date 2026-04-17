@@ -56,6 +56,14 @@ export interface ServerToClientEvents {
     lootLost: Record<string, number> | null;
     defenderLosses: TroopComposition;
   }) => void;
+  "tech:completed": (data: {
+    techId: string;
+    techName: string;
+  }) => void;
+  "tech:progress": (data: {
+    techId: string;
+    ticksRemaining: number;
+  }) => void;
   "alliance:invite_received": (data: {
     inviteId: string;
     allianceName: string;
@@ -72,6 +80,24 @@ export interface ServerToClientEvents {
     title: string;
     body: string;
     type: string;
+  }) => void;
+  "notification:new": (data: {
+    id: string;
+    type: string;
+    title: string;
+    body: string;
+    icon: string;
+    relatedId: string | null;
+    createdAt: number;
+  }) => void;
+  "message:new": (data: {
+    id: string;
+    senderId: string;
+    senderName: string;
+    senderAvatar: string;
+    subject: string;
+    body: string;
+    createdAt: number;
   }) => void;
 }
 

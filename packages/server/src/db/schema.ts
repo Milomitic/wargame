@@ -8,3 +8,6 @@ export { barbarianCamps } from "./schema/barbarian_camps.js";
 export { marches } from "./schema/marches.js";
 export { battleReports } from "./schema/battle_reports.js";
 export { alliances, allianceMembers, allianceInvites } from "./schema/alliances.js";
+export { playerTechnologies } from "./schema/technologies.js";
+export { notifications } from "./schema/notifications.js";
+export { messages } from "./schema/messages.js";

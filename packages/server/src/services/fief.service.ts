@@ -1,5 +1,5 @@
 import { nanoid } from "nanoid";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db, schema } from "../db/index.js";
 import {
   STARTER_RESOURCES,
@@ -10,7 +10,10 @@ import {
   getTerrain,
   TERRAIN_MAP,
   toTileId,
+  warehouseCapacityMultiplier,
+  granaryCapacityMultiplier,
 } from "@wargame/shared";
+import { getPlayerBonuses } from "./tech.service.js";
 
 const TICK_MS = 60_000;
 
@@ -93,20 +96,41 @@ export async function getPlayerFief(playerId: string) {
     .from(schema.resources)
     .where(eq(schema.resources.fiefId, fief.id));
 
-  const now = Date.now();
-  const resources = resourceRows.map((r) => {
-    const elapsed = (now - r.updatedAt) / TICK_MS;
-    const current = Math.min(r.amount + r.productionRate * elapsed, r.capacity);
-    return {
-      ...r,
-      amount: Math.floor(current * 100) / 100,
-    };
-  });
-
+  // Load buildings up-front so capacity bonuses from warehouse/granary
+  // can be applied alongside tech bonuses.
   const buildingRows = await db
     .select()
     .from(schema.buildings)
     .where(eq(schema.buildings.fiefId, fief.id));
+
+  const warehouseLevel =
+    buildingRows.find((b) => b.buildingType === "warehouse" && !b.isConstructing)?.level ?? 0;
+  const granaryLevel =
+    buildingRows.find((b) => b.buildingType === "granary" && !b.isConstructing)?.level ?? 0;
+  const warehouseMult = warehouseCapacityMultiplier(warehouseLevel);
+  const granaryMult = granaryCapacityMultiplier(granaryLevel);
+
+  // Apply tech bonuses + building bonuses to production and capacity
+  const bonuses = await getPlayerBonuses(playerId);
+  const prodAllBonus = 1 + (bonuses["production_all"] || 0);
+  const capAllBonus = 1 + (bonuses["capacity_all"] || 0);
+
+  const now = Date.now();
+  const resources = resourceRows.map((r) => {
+    const resBonus = bonuses[`production_${r.resourceType}`] || 0;
+    const effectiveRate = r.productionRate * prodAllBonus * (1 + resBonus);
+    // Storage: warehouse boosts wood/stone/iron/gold, granary boosts food.
+    const storageMult = r.resourceType === "food" ? granaryMult : warehouseMult;
+    const effectiveCapacity = r.capacity * capAllBonus * storageMult;
+    const elapsed = (now - r.updatedAt) / TICK_MS;
+    const current = Math.min(r.amount + effectiveRate * elapsed, effectiveCapacity);
+    return {
+      ...r,
+      productionRate: Math.round(effectiveRate * 100) / 100,
+      capacity: Math.round(effectiveCapacity),
+      amount: Math.floor(current * 100) / 100,
+    };
+  });
 
   const troopRows = await db
     .select()
@@ -114,4 +138,48 @@ export async function getPlayerFief(playerId: string) {
     .where(eq(schema.troops.fiefId, fief.id));
 
   return { fief, resources, buildings: buildingRows, troops: troopRows };
+}
+
+export interface FiefSummary {
+  id: string;
+  name: string;
+  tileId: string;
+  level: number;
+  population: number;
+  morale: number;
+  score: number;
+}
+
+/** Return all fiefs owned by a player (each with a computed score). */
+export async function getPlayerFiefs(playerId: string): Promise<FiefSummary[]> {
+  const fiefs = await db
+    .select({
+      id: schema.fiefs.id,
+      name: schema.fiefs.name,
+      tileId: schema.fiefs.tileId,
+      level: schema.fiefs.level,
+      population: schema.fiefs.population,
+      morale: schema.fiefs.morale,
+    })
+    .from(schema.fiefs)
+    .where(eq(schema.fiefs.playerId, playerId));
+
+  if (fiefs.length === 0) return [];
+
+  const buildingScores = await db
+    .select({
+      fiefId: schema.buildings.fiefId,
+      score: sql<number>`COALESCE(SUM(${schema.buildings.level}), 0)`.as("score"),
+    })
+    .from(schema.buildings)
+    .groupBy(schema.buildings.fiefId);
+  const scoreMap = new Map<string, number>();
+  for (const b of buildingScores) {
+    scoreMap.set(b.fiefId, Number(b.score));
+  }
+
+  return fiefs.map((f) => ({
+    ...f,
+    score: scoreMap.get(f.id) ?? 0,
+  }));
 }

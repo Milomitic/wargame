@@ -1,7 +1,8 @@
 import { nanoid } from "nanoid";
 import { eq, and } from "drizzle-orm";
 import { db, schema } from "../db/index.js";
-import { TROOP_MAP, type TroopType } from "@wargame/shared";
+import { TROOP_MAP, recruitSpeedMultiplier, type TroopType } from "@wargame/shared";
+import { deductResources } from "./resource.helper.js";
 
 interface RecruitResult {
   ok: boolean;
@@ -93,7 +94,14 @@ export async function startRecruiting(
     }
   }
 
-  const ticks = def.baseRecruitTicks * quantity;
+  // Training speed scales with the host building's level (barracks / stable
+  // / workshop). Minimum 1 tick so nothing completes instantly.
+  const speedMult = recruitSpeedMultiplier(building.level);
+  const ticks = Math.max(
+    1,
+    Math.ceil(def.baseRecruitTicks * quantity * speedMult)
+  );
+  const startedAt = Date.now();
 
   if (existing[0]) {
     // Update existing troop row
@@ -103,6 +111,7 @@ export async function startRecruiting(
         isRecruiting: true,
         recruitingQuantity: quantity,
         recruitingTicksRemaining: ticks,
+        recruitingStartedAt: startedAt,
       })
       .where(eq(schema.troops.id, existing[0].id));
 
@@ -122,6 +131,7 @@ export async function startRecruiting(
       isRecruiting: true,
       recruitingQuantity: quantity,
       recruitingTicksRemaining: ticks,
+      recruitingStartedAt: startedAt,
     });
 
     const created = await db
@@ -132,48 +142,5 @@ export async function startRecruiting(
   }
 }
 
-async function deductResources(
-  fiefId: string,
-  cost: Record<string, number>
-): Promise<{ ok: boolean; error?: string }> {
-  const resources = await db
-    .select()
-    .from(schema.resources)
-    .where(eq(schema.resources.fiefId, fiefId));
-
-  const now = Date.now();
-  const resMap: Record<string, (typeof resources)[0]> = {};
-  const currentAmounts: Record<string, number> = {};
-
-  for (const r of resources) {
-    resMap[r.resourceType] = r;
-    const elapsed = (now - r.updatedAt) / 60_000;
-    currentAmounts[r.resourceType] = Math.min(
-      r.amount + r.productionRate * elapsed,
-      r.capacity
-    );
-  }
-
-  for (const [type, needed] of Object.entries(cost)) {
-    if (needed <= 0) continue;
-    const available = currentAmounts[type] || 0;
-    if (available < needed) {
-      return {
-        ok: false,
-        error: `Not enough ${type}: need ${needed}, have ${Math.floor(available)}`,
-      };
-    }
-  }
-
-  for (const [type, needed] of Object.entries(cost)) {
-    if (needed <= 0) continue;
-    const r = resMap[type];
-    if (!r) continue;
-    await db
-      .update(schema.resources)
-      .set({ amount: currentAmounts[type] - needed, updatedAt: now })
-      .where(eq(schema.resources.id, r.id));
-  }
-
-  return { ok: true };
-}
+// deductResources is now imported from resource.helper.ts — shared with
+// building.service.ts so both apply the same tech + capacity bonuses.

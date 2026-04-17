@@ -8,12 +8,16 @@ export interface MapFief {
   fiefId: string;
   fiefName: string;
   level: number;
+  /** The keep building's level — determines the village icon tier on the map. */
+  keepLevel: number;
   population: number;
   playerId: string | null;
   playerName: string | null;
   hasNewbieShield: boolean;
   allianceTag: string | null;
   allianceId: string | null;
+  /** Sum of all building levels — represents the village's "score" */
+  score: number;
 }
 
 /** A camp marker on the world map. */

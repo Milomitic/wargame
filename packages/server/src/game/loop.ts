@@ -3,6 +3,7 @@ import { processBuildingTick } from "./tick/building.tick.js";
 import { processTroopTick } from "./tick/troop.tick.js";
 import { processMarchTick } from "./tick/march.tick.js";
 import { processCampRespawns } from "../services/camp.service.js";
+import { processTechTick } from "./tick/tech.tick.js";
 import type { Server as SocketIOServer } from "socket.io";
 
 let tickCount = 0;
@@ -36,6 +37,9 @@ async function tick() {
 
     // M4: Barbarian camp respawns
     await processCampRespawns();
+
+    // M7: Technology research progress
+    await processTechTick(io);
 
     // Resources use delta-time calculation on read, no per-tick DB writes needed
 

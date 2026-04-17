@@ -1,9 +1,17 @@
 import { createClient } from "@libsql/client";
 import { existsSync, mkdirSync } from "fs";
 import { dirname, resolve } from "path";
+import { fileURLToPath } from "url";
 import "dotenv/config";
 
-const dbPath = resolve(process.env.DATABASE_URL || "./data/wargame.sqlite");
+// Resolve the DB path from this file's location, not the CWD, so the seed
+// script always writes to packages/server/data/wargame.sqlite regardless of
+// where it is invoked from.
+const here = dirname(fileURLToPath(import.meta.url));
+const defaultDbPath = resolve(here, "../../data/wargame.sqlite");
+const dbPath = process.env.DATABASE_URL
+  ? resolve(process.env.DATABASE_URL)
+  : defaultDbPath;
 const dir = dirname(dbPath);
 if (!existsSync(dir)) {
   mkdirSync(dir, { recursive: true });
@@ -23,9 +31,26 @@ async function seed() {
       last_login_at INTEGER,
       is_active INTEGER NOT NULL DEFAULT 1,
       newbie_shield_until INTEGER,
-      tutorial_step INTEGER NOT NULL DEFAULT 0
+      tutorial_step INTEGER NOT NULL DEFAULT 0,
+      score INTEGER NOT NULL DEFAULT 0,
+      attack_kills INTEGER NOT NULL DEFAULT 0,
+      defense_kills INTEGER NOT NULL DEFAULT 0,
+      avatar TEXT NOT NULL DEFAULT 'knight',
+      bio TEXT NOT NULL DEFAULT ''
     )
   `);
+
+  // Idempotent migration for existing DBs
+  for (const col of [
+    "ALTER TABLE players ADD COLUMN avatar TEXT NOT NULL DEFAULT 'knight'",
+    "ALTER TABLE players ADD COLUMN bio TEXT NOT NULL DEFAULT ''",
+  ]) {
+    try {
+      await client.execute(col);
+    } catch {
+      // column already exists — ignore
+    }
+  }
 
   await client.execute(`
     CREATE TABLE IF NOT EXISTS sessions (
@@ -86,6 +111,7 @@ async function seed() {
       is_recruiting INTEGER NOT NULL DEFAULT 0,
       recruiting_quantity INTEGER NOT NULL DEFAULT 0,
       recruiting_ticks_remaining INTEGER DEFAULT 0,
+      recruiting_started_at INTEGER,
       UNIQUE(fief_id, troop_type)
     )
   `);
@@ -169,6 +195,79 @@ async function seed() {
       created_at INTEGER NOT NULL
     )
   `);
+
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS player_technologies (
+      id TEXT PRIMARY KEY,
+      player_id TEXT NOT NULL,
+      tech_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'researching',
+      research_ticks_remaining INTEGER NOT NULL DEFAULT 0,
+      research_started_at INTEGER,
+      researched_at INTEGER,
+      created_at INTEGER NOT NULL
+    )
+  `);
+
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS notifications (
+      id TEXT PRIMARY KEY,
+      player_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      icon TEXT NOT NULL,
+      is_read INTEGER NOT NULL DEFAULT 0,
+      related_id TEXT,
+      created_at INTEGER NOT NULL
+    )
+  `);
+
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS messages (
+      id TEXT PRIMARY KEY,
+      sender_id TEXT NOT NULL,
+      recipient_id TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      body TEXT NOT NULL,
+      is_read INTEGER NOT NULL DEFAULT 0,
+      parent_id TEXT,
+      created_at INTEGER NOT NULL
+    )
+  `);
+
+  // Idempotent migrations: add new columns to pre-existing tables.
+  // Must run AFTER all CREATE TABLE statements.
+  const alters = [
+    `ALTER TABLE players ADD COLUMN score INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE players ADD COLUMN attack_kills INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE players ADD COLUMN defense_kills INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE players ADD COLUMN bio TEXT NOT NULL DEFAULT ''`,
+    `ALTER TABLE players ADD COLUMN avatar TEXT NOT NULL DEFAULT 'knight'`,
+    `ALTER TABLE players ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE troops ADD COLUMN recruiting_started_at INTEGER`,
+    `ALTER TABLE player_technologies ADD COLUMN research_started_at INTEGER`,
+    `ALTER TABLE alliances ADD COLUMN avatar TEXT NOT NULL DEFAULT 'banner_red'`,
+    `ALTER TABLE alliances ADD COLUMN manifesto TEXT NOT NULL DEFAULT ''`,
+  ];
+  for (const sql of alters) {
+    try { await client.execute(sql); }
+    catch (e: any) {
+      const msg = String(e?.message ?? "");
+      if (msg.includes("duplicate column") || msg.includes("no such table")) continue;
+      throw e;
+    }
+  }
+
+  // Grant admin role to Milomitic (idempotent — no-op if user doesn't exist)
+  try {
+    await client.execute(`UPDATE players SET is_admin = 1 WHERE username = 'Milomitic'`);
+  } catch {}
+
+  // Migrate generic 'cavalry' troops to 'cavalry_light' (the new split unit)
+  try {
+    await client.execute(`UPDATE troops SET troop_type = 'cavalry_light' WHERE troop_type = 'cavalry'`);
+  } catch {}
 
   console.log("Database seeded successfully at", dbPath);
   client.close();

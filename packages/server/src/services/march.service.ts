@@ -10,6 +10,7 @@ import {
   type TroopComposition,
 } from "@wargame/shared";
 import { areAllied } from "./alliance.service.js";
+import { getPlayerBonuses } from "./tech.service.js";
 
 interface MarchInput {
   playerId: string;
@@ -137,11 +138,13 @@ export async function createMarch(input: MarchInput): Promise<MarchResult> {
     }
   }
 
-  // Calculate travel time (Manhattan distance * ticks per tile)
+  // Calculate travel time (Manhattan distance * ticks per tile, reduced by march_speed tech)
   const origin = parseTileId(originTileId);
   const target = parseTileId(targetTileId);
   const distance = Math.abs(target.x - origin.x) + Math.abs(target.y - origin.y);
-  const ticksToTravel = Math.max(1, distance * MARCH_SPEED_TICKS_PER_TILE);
+  const bonuses = await getPlayerBonuses(playerId);
+  const speedMultiplier = 1 - Math.min(bonuses["march_speed"] || 0, 0.5); // cap at 50% reduction
+  const ticksToTravel = Math.max(1, Math.round(distance * MARCH_SPEED_TICKS_PER_TILE * speedMultiplier));
 
   // Deduct troops from fief
   for (const [troopType, qty] of Object.entries(troops)) {
@@ -192,25 +195,75 @@ export async function createMarch(input: MarchInput): Promise<MarchResult> {
   return { ok: true, march: created[0] };
 }
 
-/** Get active marches for a player. */
+/** Get active marches for a player — enriched with target player/village names. */
 export async function getPlayerMarches(playerId: string) {
   const rows = await db
     .select()
     .from(schema.marches)
-    .where(
-      and(
-        eq(schema.marches.playerId, playerId),
-      )
-    );
+    .where(eq(schema.marches.playerId, playerId));
 
   // Filter out completed marches older than 5 minutes
   const now = Date.now();
-  return rows
-    .filter((r) => r.status !== "completed" || now - r.createdAt < 300_000)
+  const active = rows.filter(
+    (r) => r.status !== "completed" || now - r.createdAt < 300_000
+  );
+
+  // Batch-lookup target fiefs + owners for all marches
+  const allFiefs = await db.select().from(schema.fiefs);
+  const allPlayers = await db.select({ id: schema.players.id, displayName: schema.players.displayName }).from(schema.players);
+  const fiefByTile = new Map(allFiefs.map((f) => [f.tileId, f]));
+  const playerNameMap = new Map(allPlayers.map((p) => [p.id, p.displayName]));
+
+  return active.map((r) => {
+    const targetFief = fiefByTile.get(r.targetTileId);
+    return {
+      ...r,
+      troops: JSON.parse(r.troopsJson) as TroopComposition,
+      targetFiefName: targetFief?.name ?? null,
+      targetPlayerName: targetFief?.playerId ? (playerNameMap.get(targetFief.playerId) ?? null) : null,
+      targetPlayerId: targetFief?.playerId ?? null,
+    };
+  });
+}
+
+/** Get hostile marches currently incoming toward any of the player's fiefs. */
+export async function getIncomingMarches(playerId: string) {
+  const myFiefs = await db
+    .select({ tileId: schema.fiefs.tileId })
+    .from(schema.fiefs)
+    .where(eq(schema.fiefs.playerId, playerId));
+
+  if (myFiefs.length === 0) return [];
+
+  const myTiles = new Set(myFiefs.map((f) => f.tileId));
+
+  // Pull all marches not initiated by us, currently marching (i.e. not yet resolved/returning).
+  const rows = await db.select().from(schema.marches);
+
+  const incoming = rows
+    .filter(
+      (r) =>
+        r.playerId !== playerId &&
+        r.status === "marching" &&
+        myTiles.has(r.targetTileId)
+    )
     .map((r) => ({
       ...r,
       troops: JSON.parse(r.troopsJson) as TroopComposition,
     }));
+
+  // Lookup attacker display names + attacker fief names
+  if (incoming.length === 0) return [];
+  const attackerRows = await db.select({ id: schema.players.id, displayName: schema.players.displayName }).from(schema.players);
+  const nameMap = new Map(attackerRows.map((p) => [p.id, p.displayName]));
+  const allFiefs = await db.select().from(schema.fiefs);
+  const fiefByPlayer = new Map(allFiefs.map((f) => [f.playerId, f]));
+
+  return incoming.map((m) => ({
+    ...m,
+    attackerName: nameMap.get(m.playerId) ?? "Unknown",
+    attackerFiefName: fiefByPlayer.get(m.playerId)?.name ?? null,
+  }));
 }
 
 /** Return surviving troops to the fief after combat. */

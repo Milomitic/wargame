@@ -12,11 +12,11 @@ const RESOURCE_CONFIG: Record<
   string,
   { icon: string; color: string; colorLight: string; label: string }
 > = {
-  wood:  { icon: "\u{1FAB5}",     color: "var(--res-wood)",  colorLight: "var(--res-wood-light)",  label: "Wood" },
-  stone: { icon: "\u{1FAA8}",     color: "var(--res-stone)", colorLight: "var(--res-stone-light)", label: "Stone" },
-  iron:  { icon: "\u2692\uFE0F",  color: "var(--res-iron)",  colorLight: "var(--res-iron-light)",  label: "Iron" },
-  food:  { icon: "\u{1F33E}",     color: "var(--res-food)",  colorLight: "var(--res-food-light)",  label: "Food" },
-  gold:  { icon: "\u{1F4B0}",     color: "var(--res-gold)",  colorLight: "var(--res-gold-light)",  label: "Gold" },
+  wood:  { icon: "🪵",     color: "var(--res-wood)",  colorLight: "var(--res-wood-light)",  label: "Wood" },
+  stone: { icon: "🪨",     color: "var(--res-stone)", colorLight: "var(--res-stone-light)", label: "Stone" },
+  iron:  { icon: "⚒️",  color: "var(--res-iron)",  colorLight: "var(--res-iron-light)",  label: "Iron" },
+  food:  { icon: "🌾",     color: "var(--res-food)",  colorLight: "var(--res-food-light)",  label: "Food" },
+  gold:  { icon: "💰",     color: "var(--res-gold)",  colorLight: "var(--res-gold-light)",  label: "Gold" },
 };
 
 const RESOURCE_ORDER = ["wood", "stone", "iron", "food", "gold"];
@@ -81,7 +81,7 @@ export default function ResourceBar({ resources }: { resources: ResourceData[] }
                   <span className="font-bold" style={{ color: config?.color }}>
                     {Math.floor(amount).toLocaleString()}
                   </span>
-                  <span className="text-[0.6rem] text-[var(--color-parchment-faint)] hidden sm:inline">
+                  <span className="text-fluid-xs text-[var(--color-parchment-faint)] hidden sm:inline">
                     /{r.capacity.toLocaleString()}
                   </span>
                 </div>
@@ -95,7 +95,7 @@ export default function ResourceBar({ resources }: { resources: ResourceData[] }
                       }}
                     />
                   </div>
-                  <span className="text-[0.55rem] sm:text-[0.6rem] text-[var(--color-success)]/80 whitespace-nowrap">
+                  <span className="text-fluid-xxs sm:text-fluid-xs text-[var(--color-success)]/80 whitespace-nowrap">
                     +{r.productionRate}
                   </span>
                 </div>

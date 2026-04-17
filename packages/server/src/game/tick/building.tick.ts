@@ -1,24 +1,33 @@
-import { eq, and, gt } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { db, schema } from "../../db/index.js";
-import { BUILDING_MAP } from "@wargame/shared";
+import { BUILDING_MAP, buildingLevelScore } from "@wargame/shared";
+import { createNotification } from "../../services/notification.service.js";
 import type { Server as SocketIOServer } from "socket.io";
+import { awardScore, playerIdForFief } from "../../services/score.service.js";
 
 export async function processBuildingTick(io: SocketIOServer | null) {
   // Find all buildings currently under construction
   const constructing = await db
     .select()
     .from(schema.buildings)
-    .where(
-      and(
-        eq(schema.buildings.isConstructing, true),
-        gt(schema.buildings.constructionTicksRemaining, 0)
-      )
-    );
+    .where(eq(schema.buildings.isConstructing, true));
+
+  const now = Date.now();
 
   for (const building of constructing) {
-    const remaining = building.constructionTicksRemaining! - 1;
+    try {
+    // Pure wall-clock check: compute total build duration from definition,
+    // see if enough real time has elapsed since constructionStartedAt.
+    const def = BUILDING_MAP[building.buildingType];
+    const totalTicks = def
+      ? Math.ceil(def.baseBuildTicks * Math.pow(def.buildTicksMultiplier, building.level - 1))
+      : (building.constructionTicksRemaining ?? 1);
+    const totalDurationMs = totalTicks * 60_000;
+    const elapsed = building.constructionStartedAt
+      ? now - building.constructionStartedAt
+      : Infinity; // no startedAt → treat as expired (legacy row)
 
-    if (remaining <= 0) {
+    if (elapsed >= totalDurationMs) {
       // Construction complete
       await db
         .update(schema.buildings)
@@ -69,45 +78,45 @@ export async function processBuildingTick(io: SocketIOServer | null) {
         }
       }
 
-      // Notify player via WebSocket
-      if (io) {
-        const fiefRows = await db
-          .select({ playerId: schema.fiefs.playerId })
-          .from(schema.fiefs)
+      // Keep the fief.level in sync with the Keep building level, so that
+      // the map and all other systems that read fiefs.level see the correct
+      // "town hall" tier without a separate keepLevel lookup.
+      if (building.buildingType === "keep") {
+        await db
+          .update(schema.fiefs)
+          .set({ level: building.level })
           .where(eq(schema.fiefs.id, building.fiefId));
-
-        const playerId = fiefRows[0]?.playerId;
-        if (playerId) {
-          io.to(`player:${playerId}`).emit("building:complete", {
-            fiefId: building.fiefId,
-            buildingType: building.buildingType,
-            level: building.level,
-          });
-        }
       }
-    } else {
-      // Decrement timer
-      await db
-        .update(schema.buildings)
-        .set({ constructionTicksRemaining: remaining })
-        .where(eq(schema.buildings.id, building.id));
 
-      // Notify progress
-      if (io) {
-        const fiefRows = await db
-          .select({ playerId: schema.fiefs.playerId })
-          .from(schema.fiefs)
-          .where(eq(schema.fiefs.id, building.fiefId));
-
-        const playerId = fiefRows[0]?.playerId;
-        if (playerId) {
-          io.to(`player:${playerId}`).emit("building:progress", {
-            fiefId: building.fiefId,
-            buildingType: building.buildingType,
-            ticksRemaining: remaining,
-          });
-        }
+      // Award score for reaching this level (build = level 1, upgrade = new level).
+      const playerId = await playerIdForFief(building.fiefId);
+      if (playerId) {
+        await awardScore(playerId, buildingLevelScore(building.level));
       }
+
+      // Notify player via WebSocket + persistent notification
+      if (playerId) {
+        const bName = def?.name || building.buildingType;
+        await createNotification({
+          playerId,
+          type: "building_complete",
+          title: "Construction Complete",
+          body: `${bName} upgraded to level ${building.level}.`,
+          icon: "\u{1F3D7}\uFE0F",
+        });
+      }
+      if (io && playerId) {
+        io.to(`player:${playerId}`).emit("building:complete", {
+          fiefId: building.fiefId,
+          buildingType: building.buildingType,
+          level: building.level,
+        });
+      }
+    }
+    // No else/decrement needed — client computes progress from
+    // constructionStartedAt + totalDurationMs in real time.
+    } catch (err) {
+      console.error(`Building tick error for ${building.id}:`, err);
     }
   }
 }

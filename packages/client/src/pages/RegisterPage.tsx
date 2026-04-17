@@ -41,7 +41,7 @@ export default function RegisterPage() {
         {/* Shield icon */}
         <div className="text-center mb-5">
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-full border border-[var(--border-default)] bg-[var(--surface-2)] glow-gold">
-            <span className="text-2xl">{"\u2694\uFE0F"}</span>
+            <span className="text-2xl">{"⚔️"}</span>
           </div>
         </div>
 
@@ -57,14 +57,14 @@ export default function RegisterPage() {
 
           {error && (
             <div className="flex items-start gap-2 p-2.5 mb-4 rounded-lg text-xs bg-[var(--color-danger)]/15 border border-[var(--color-danger)]/40 text-[var(--color-danger-light)]">
-              <span className="shrink-0 mt-px">{"\u26A0\uFE0F"}</span>
+              <span className="shrink-0 mt-px">{"⚠️"}</span>
               <span>{error}</span>
             </div>
           )}
 
           <form onSubmit={handleSubmit} className="space-y-3.5">
             <div>
-              <label className="block text-[0.65rem] font-bold uppercase tracking-[0.1em] mb-1.5 text-[var(--color-parchment-faint)]">
+              <label className="block text-fluid-sm font-bold uppercase tracking-[0.1em] mb-1.5 text-[var(--color-parchment-faint)]">
                 Display Name
               </label>
               <input
@@ -79,7 +79,7 @@ export default function RegisterPage() {
               />
             </div>
             <div>
-              <label className="block text-[0.65rem] font-bold uppercase tracking-[0.1em] mb-1.5 text-[var(--color-parchment-faint)]">
+              <label className="block text-fluid-sm font-bold uppercase tracking-[0.1em] mb-1.5 text-[var(--color-parchment-faint)]">
                 Username
               </label>
               <input
@@ -95,7 +95,7 @@ export default function RegisterPage() {
               />
             </div>
             <div>
-              <label className="block text-[0.65rem] font-bold uppercase tracking-[0.1em] mb-1.5 text-[var(--color-parchment-faint)]">
+              <label className="block text-fluid-sm font-bold uppercase tracking-[0.1em] mb-1.5 text-[var(--color-parchment-faint)]">
                 Email
               </label>
               <input
@@ -108,7 +108,7 @@ export default function RegisterPage() {
               />
             </div>
             <div>
-              <label className="block text-[0.65rem] font-bold uppercase tracking-[0.1em] mb-1.5 text-[var(--color-parchment-faint)]">
+              <label className="block text-fluid-sm font-bold uppercase tracking-[0.1em] mb-1.5 text-[var(--color-parchment-faint)]">
                 Password
               </label>
               <input
@@ -143,6 +143,13 @@ export default function RegisterPage() {
             </Link>
           </p>
         </div>
+      </div>
+
+      {/* Footer */}
+      <div className="absolute bottom-0 left-0 right-0 text-center py-3">
+        <p className="text-fluid-xs text-[var(--text-muted)] opacity-40 tracking-wide">
+          Medieval Wargame v0.1 &middot; {"⚔️"} Build. Conquer. Rule.
+        </p>
       </div>
     </div>
   );

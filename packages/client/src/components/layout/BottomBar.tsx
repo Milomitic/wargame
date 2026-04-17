@@ -1,57 +1,69 @@
-import { useEffect } from "react";
-import { useEventLogStore } from "../../stores/eventLogStore.js";
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { TICK_INTERVAL_MS } from "@wargame/shared";
 
-function formatTime(ts: number): string {
-  const d = new Date(ts);
-  return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+function nextTickIn(): number {
+  // Tick happens at every multiple of TICK_INTERVAL_MS
+  const ms = TICK_INTERVAL_MS - (Date.now() % TICK_INTERVAL_MS);
+  return Math.ceil(ms / 1000);
 }
 
-const TYPE_CLASS: Record<string, string> = {
-  info: "",
-  success: "log-entry__text--green",
-  warning: "log-entry__text--orange",
-  danger: "log-entry__text--red",
-};
+function formatServerTime(ts: number): string {
+  const d = new Date(ts);
+  return d.toLocaleTimeString("it-IT", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+}
 
 export default function BottomBar() {
-  const events = useEventLogStore((s) => s.events);
-  const addEvent = useEventLogStore((s) => s.addEvent);
-  const clearEvents = useEventLogStore((s) => s.clearEvents);
+  const navigate = useNavigate();
+  const [tickIn, setTickIn] = useState(nextTickIn);
+  const [serverTime, setServerTime] = useState<number>(() => Date.now());
 
   useEffect(() => {
-    if (events.length === 0) {
-      addEvent({ icon: "\u{1F4E1}", text: "Connected to command center", type: "success" });
-      addEvent({ icon: "\u2699\uFE0F", text: "Systems initialized", type: "info" });
-    }
+    const id = setInterval(() => {
+      setTickIn(nextTickIn());
+      setServerTime(Date.now());
+    }, 1000);
+    return () => clearInterval(id);
   }, []);
 
   return (
     <div className="bottombar">
-      <div className="bottombar__header">
-        <div className="bottombar__title">
-          <span className="bottombar__dot" />
-          Communication Log
-        </div>
+      <div className="bottombar__footer">
+        <span className="bottombar__footer-brand">
+          {"🏰"} Medieval Wargame
+          <span className="bottombar__footer-version">v0.1</span>
+        </span>
+        <span className="bottombar__footer-sep">·</span>
+        <span className="bottombar__footer-status">
+          <span className="bottombar__footer-dot" />
+          Realm online
+        </span>
+        <span className="bottombar__footer-sep">·</span>
+        <span className="bottombar__footer-clock" title="Server time">
+          {"🕰️"} {formatServerTime(serverTime)}
+        </span>
+        <span className="bottombar__footer-sep">·</span>
+        <span className="bottombar__footer-tick" title="Time until next game tick">
+          {"⏱️"} Next tick in {tickIn}s
+        </span>
+        <span className="bottombar__footer-sep bottombar__footer-sep--hide-sm">·</span>
         <button
-          onClick={clearEvents}
-          className="btn-ghost text-[0.6rem] px-2 py-0.5"
+          type="button"
+          onClick={() => navigate("/manual")}
+          className="bottombar__footer-link"
+          title="Open game guide"
         >
-          Clear
+          {"📖"} Guide
         </button>
-      </div>
-      <div className="bottombar__log">
-        {events.map((e) => (
-          <div key={e.id} className="log-entry">
-            <span className="log-entry__time">{formatTime(e.timestamp)}</span>
-            <span>{e.icon}</span>
-            <span className={`log-entry__text ${TYPE_CLASS[e.type] || ""}`}>
-              {e.text}
-            </span>
-          </div>
-        ))}
-        {events.length === 0 && (
-          <p className="text-xs text-[var(--text-muted)] py-2">No events logged</p>
-        )}
+        <span className="bottombar__footer-sep bottombar__footer-sep--hide-sm">·</span>
+        <span className="bottombar__footer-motto bottombar__footer-sep--hide-sm">
+          {"⚔️"} Build. Conquer. Rule.
+        </span>
       </div>
     </div>
   );

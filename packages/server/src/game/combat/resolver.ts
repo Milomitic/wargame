@@ -16,30 +16,50 @@ import {
  * 4. Apply proportional casualties to losing side, partial to winning side
  * 5. Generate loot if attacker wins
  */
+export interface CombatOptions {
+  wallBonus?: number;
+  offlineBonus?: number;
+  attackerTechAttack?: number;   // e.g. 0.25 = +25%
+  attackerTechDefense?: number;
+  defenderTechAttack?: number;
+  defenderTechDefense?: number;
+  defenderTechWall?: number;     // extra wall bonus from tech
+}
+
 export function resolveCombat(
   attackerTroops: TroopComposition,
   defenderTroops: TroopComposition,
   terrain: TerrainType,
   lootPool: Record<string, number> | null,
-  wallBonus = 0,
-  offlineBonus = 0
+  opts: CombatOptions = {}
 ): CombatResult {
-  // Calculate total attack power
+  const {
+    wallBonus = 0,
+    offlineBonus = 0,
+    attackerTechAttack = 0,
+    attackerTechDefense: _atkDef = 0,
+    defenderTechAttack: _defAtk = 0,
+    defenderTechDefense = 0,
+    defenderTechWall = 0,
+  } = opts;
+
+  // Calculate total attack power (with attacker tech bonus)
   let totalAttack = 0;
   for (const [type, qty] of Object.entries(attackerTroops)) {
     const def = TROOP_MAP[type];
     if (def) totalAttack += def.attack * qty;
   }
+  totalAttack = Math.floor(totalAttack * (1 + attackerTechAttack));
 
-  // Calculate total defense power with terrain + wall + offline bonuses
+  // Calculate total defense power with terrain + wall + offline + tech bonuses
   const terrainBonus = TERRAIN_DEFENSE_BONUS[terrain] || 1.0;
-  const totalBonusMultiplier = terrainBonus + wallBonus + offlineBonus;
+  const totalBonusMultiplier = terrainBonus + wallBonus + offlineBonus + defenderTechWall;
   let totalDefense = 0;
   for (const [type, qty] of Object.entries(defenderTroops)) {
     const def = TROOP_MAP[type];
     if (def) totalDefense += def.defense * qty;
   }
-  totalDefense = Math.floor(totalDefense * totalBonusMultiplier);
+  totalDefense = Math.floor(totalDefense * totalBonusMultiplier * (1 + defenderTechDefense));
 
   // Prevent division by zero
   const totalPower = totalAttack + totalDefense;

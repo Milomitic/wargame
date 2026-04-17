@@ -1,3 +1,4 @@
+import type React from "react";
 /**
  * SVG building illustrations for the village scene.
  * Each building is a detailed inline SVG inspired by medieval pixel-art MMOs.
@@ -9,37 +10,55 @@ const SVG_PROPS = { xmlns: "http://www.w3.org/2000/svg", viewBox: "0 0 64 64", c
 export function KeepArt() {
   return (
     <svg {...SVG_PROPS}>
+      <defs>
+        <linearGradient id="keep-wall" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#9a9aaa"/>
+          <stop offset="100%" stopColor="#6a6a7a"/>
+        </linearGradient>
+        <linearGradient id="keep-roof" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#b04030"/>
+          <stop offset="100%" stopColor="#7a2020"/>
+        </linearGradient>
+      </defs>
+      {/* Ground shadow */}
+      <ellipse cx="32" cy="56" rx="28" ry="4" fill="rgba(0,0,0,0.15)"/>
       {/* Main castle body */}
-      <rect x="14" y="24" width="36" height="28" rx="1" fill="#5a5a6a" stroke="#3a3a4a" strokeWidth="1"/>
+      <rect x="14" y="24" width="36" height="28" rx="1" fill="url(#keep-wall)" stroke="#4a4a5a" strokeWidth="1"/>
+      {/* Stone texture lines */}
+      {[28,32,36,40,44,48].map(y => <line key={y} x1="14" y1={y} x2="50" y2={y} stroke="#5a5a6a" strokeWidth="0.3" opacity="0.5"/>)}
       {/* Gate */}
-      <rect x="25" y="38" width="14" height="14" rx="2" fill="#2a1a0a"/>
-      <rect x="27" y="40" width="10" height="12" rx="1" fill="#1a0f05"/>
-      {/* Gate bars */}
-      <line x1="29" y1="40" x2="29" y2="52" stroke="#4a3a2a" strokeWidth="0.8"/>
-      <line x1="32" y1="40" x2="32" y2="52" stroke="#4a3a2a" strokeWidth="0.8"/>
-      <line x1="35" y1="40" x2="35" y2="52" stroke="#4a3a2a" strokeWidth="0.8"/>
+      <path d="M24,52 L24,38 Q32,30 40,38 L40,52 Z" fill="#1a0f05"/>
+      <path d="M26,52 L26,39 Q32,32 38,39 L38,52 Z" fill="#0f0805"/>
+      {/* Portcullis bars */}
+      {[28,31,34].map(x => <line key={x} x1={x} y1="39" x2={x} y2="52" stroke="#5a5050" strokeWidth="0.7"/>)}
       {/* Left tower */}
-      <rect x="8" y="14" width="14" height="38" rx="1" fill="#6a6a7a" stroke="#3a3a4a" strokeWidth="1"/>
-      <polygon points="8,14 15,4 22,14" fill="#8a3030" stroke="#6a2020" strokeWidth="0.8"/>
+      <rect x="6" y="12" width="14" height="40" rx="1" fill="url(#keep-wall)" stroke="#4a4a5a" strokeWidth="1"/>
+      <polygon points="6,12 13,2 20,12" fill="url(#keep-roof)" stroke="#5a1515" strokeWidth="0.8"/>
       {/* Right tower */}
-      <rect x="42" y="14" width="14" height="38" rx="1" fill="#6a6a7a" stroke="#3a3a4a" strokeWidth="1"/>
-      <polygon points="42,14 49,4 56,14" fill="#8a3030" stroke="#6a2020" strokeWidth="0.8"/>
-      {/* Battlements left */}
-      {[8,12,16].map(x => <rect key={x} x={x} y="11" width="3" height="5" fill="#6a6a7a" stroke="#3a3a4a" strokeWidth="0.5"/>)}
-      {/* Battlements right */}
-      {[42,46,50].map(x => <rect key={x} x={x} y="11" width="3" height="5" fill="#6a6a7a" stroke="#3a3a4a" strokeWidth="0.5"/>)}
-      {/* Battlements center */}
-      {[16,20,24,28,32,36,40,44].map(x => <rect key={x} x={x} y="21" width="2.5" height="4" fill="#5a5a6a" stroke="#3a3a4a" strokeWidth="0.4"/>)}
+      <rect x="44" y="12" width="14" height="40" rx="1" fill="url(#keep-wall)" stroke="#4a4a5a" strokeWidth="1"/>
+      <polygon points="44,12 51,2 58,12" fill="url(#keep-roof)" stroke="#5a1515" strokeWidth="0.8"/>
+      {/* Battlements */}
+      {[6,10,14].map(x => <rect key={`bl${x}`} x={x} y="9" width="3" height="5" fill="#8a8a9a" stroke="#4a4a5a" strokeWidth="0.4"/>)}
+      {[44,48,52].map(x => <rect key={`br${x}`} x={x} y="9" width="3" height="5" fill="#8a8a9a" stroke="#4a4a5a" strokeWidth="0.4"/>)}
+      {[16,20,24,28,32,36,40,44].map(x => <rect key={`bc${x}`} x={x} y="21" width="2.5" height="4" fill="#7a7a8a" stroke="#4a4a5a" strokeWidth="0.3"/>)}
+      {/* Tower highlights (light hitting from left) */}
+      <rect x="6" y="12" width="4" height="40" rx="0.5" fill="rgba(255,255,255,0.08)"/>
+      <rect x="44" y="12" width="4" height="40" rx="0.5" fill="rgba(255,255,255,0.08)"/>
       {/* Flags */}
-      <line x1="15" y1="4" x2="15" y2="0" stroke="#4a3a2a" strokeWidth="0.8"/>
-      <polygon points="15,0 22,2 15,4" fill="#d4a020" opacity="0.9"/>
-      <line x1="49" y1="4" x2="49" y2="0" stroke="#4a3a2a" strokeWidth="0.8"/>
-      <polygon points="49,0 56,2 49,4" fill="#d4a020" opacity="0.9"/>
-      {/* Windows */}
-      <rect x="11" y="22" width="3" height="4" rx="0.5" fill="#1a1a2a"/>
-      <rect x="17" y="22" width="3" height="4" rx="0.5" fill="#1a1a2a"/>
-      <rect x="45" y="22" width="3" height="4" rx="0.5" fill="#1a1a2a"/>
-      <rect x="51" y="22" width="3" height="4" rx="0.5" fill="#1a1a2a"/>
+      <line x1="13" y1="2" x2="13" y2="-4" stroke="#5a3a20" strokeWidth="0.8"/>
+      <polygon points="13,-4 20,-2 13,0" fill="#d4a020"/>
+      <line x1="51" y1="2" x2="51" y2="-4" stroke="#5a3a20" strokeWidth="0.8"/>
+      <polygon points="51,-4 58,-2 51,0" fill="#d4a020"/>
+      {/* Windows with warm glow */}
+      {[10,16,47,53].map(x => (
+        <g key={`w${x}`}>
+          <rect x={x} y="22" width="3" height="5" rx="0.5" fill="#1a1a2a"/>
+          <rect x={x+0.3} y="22.3" width="2.4" height="4.4" rx="0.3" fill="#f0c040" opacity="0.25"/>
+        </g>
+      ))}
+      {/* Torches */}
+      <ellipse cx="22" cy="38" rx="2" ry="2.5" fill="#f0a020" opacity="0.55"/>
+      <ellipse cx="42" cy="38" rx="2" ry="2.5" fill="#f0a020" opacity="0.55"/>
     </svg>
   );
 }
@@ -422,7 +441,7 @@ export function WarehouseArt() {
 }
 
 /** Map building type to its art component */
-export const BUILDING_ART: Record<string, () => JSX.Element> = {
+export const BUILDING_ART: Record<string, () => React.ReactElement> = {
   keep: KeepArt,
   lumbermill: LumbermillArt,
   quarry: QuarryArt,

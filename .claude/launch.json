@@ -5,13 +5,14 @@
       "name": "server",
       "runtimeExecutable": "npx",
       "runtimeArgs": ["tsx", "watch", "packages/server/src/index.ts"],
-      "port": 3000
+      "port": 3003,
+      "env": { "PORT": "3003" }
     },
     {
       "name": "client",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["vite", "--config", "packages/client/vite.config.ts", "--port", "5174", "packages/client"],
-      "port": 5174
+      "runtimeArgs": ["vite", "--config", "packages/client/vite.config.ts", "--port", "3002", "packages/client"],
+      "port": 3002
     }
   ]
 }

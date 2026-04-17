@@ -61,7 +61,71 @@ export default function App() {
         }
       />
       <Route
+        path="/tech"
+        element={
+          <ProtectedRoute>
+            <GameShell />
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/diplomacy"
+        element={
+          <ProtectedRoute>
+            <GameShell />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/player/:id"
+        element={
+          <ProtectedRoute>
+            <GameShell />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/alliance/:id"
+        element={
+          <ProtectedRoute>
+            <GameShell />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/march/:id"
+        element={
+          <ProtectedRoute>
+            <GameShell />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/manual"
+        element={
+          <ProtectedRoute>
+            <GameShell />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin"
+        element={
+          <ProtectedRoute>
+            <GameShell />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/reports"
+        element={
+          <ProtectedRoute>
+            <GameShell />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/inbox"
         element={
           <ProtectedRoute>
             <GameShell />

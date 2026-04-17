@@ -3,6 +3,8 @@ import { config } from "./config.js";
 import { setupSocketIO } from "./ws/index.js";
 import { setSocketIO, startGameLoop, stopGameLoop } from "./game/loop.js";
 import { seedBarbarianCamps } from "./services/camp.service.js";
+import { setNotificationIO } from "./services/notification.service.js";
+import { setMessageIO } from "./services/message.service.js";
 
 async function main() {
   const app = await buildApp();
@@ -19,6 +21,8 @@ async function main() {
     // Set up Socket.io
     const io = setupSocketIO(httpServer);
     setSocketIO(io);
+    setNotificationIO(io);
+    setMessageIO(io);
 
     // Start the game loop
     startGameLoop();

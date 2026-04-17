@@ -42,6 +42,8 @@ export async function getPlayerAlliance(playerId: string) {
     leaderId: allianceRow[0].leaderId,
     memberCount,
     createdAt: allianceRow[0].createdAt,
+    avatar: allianceRow[0].avatar ?? "banner_red",
+    manifesto: allianceRow[0].manifesto ?? "",
   };
 
   return { alliance, membership: memberRow[0] };
@@ -202,6 +204,8 @@ export async function createAlliance(
       name,
       tag: tag.toUpperCase(),
       description,
+      avatar: "banner_red",
+      manifesto: "",
       leaderId: playerId,
       memberCount: 1,
       createdAt: now,

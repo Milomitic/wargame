@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { api } from "../api/client.js";
 import {
   ALLIANCE_TAG_MIN,
@@ -12,6 +13,7 @@ import {
 type View = "overview" | "create";
 
 export default function AlliancePage() {
+  const navigate = useNavigate();
   const [alliance, setAlliance] = useState<Alliance | null>(null);
   const [members, setMembers] = useState<AllianceMember[]>([]);
   const [myRole, setMyRole] = useState<AllianceRole | null>(null);
@@ -159,14 +161,14 @@ export default function AlliancePage() {
   return (
     <div className="h-full overflow-y-auto p-4 md:p-6 max-w-3xl mx-auto">
       <h1 className="font-title text-xl font-bold text-[var(--color-gold)] mb-4">
-        {"\u{1F91D}"} Diplomacy
+        {"🤝"} Diplomacy
       </h1>
 
       {error && (
         <div className="flex items-start gap-2 p-3 rounded-lg text-xs bg-[var(--color-danger)]/15 border border-[var(--color-danger)]/40 text-[var(--color-danger-light)] mb-4">
-          <span>{"\u26A0\uFE0F"}</span>
+          <span>{"⚠️"}</span>
           <span>{error}</span>
-          <button onClick={() => setError(null)} className="ml-auto text-[var(--text-muted)]">{"\u2715"}</button>
+          <button onClick={() => setError(null)} className="ml-auto text-[var(--text-muted)]">{"✕"}</button>
         </div>
       )}
 
@@ -213,7 +215,7 @@ export default function AlliancePage() {
       {/* ── No alliance ── */}
       {!alliance && view === "overview" && (
         <div className="card p-6 text-center">
-          <div className="text-4xl mb-3">{"\u{1F3F3}\uFE0F"}</div>
+          <div className="text-4xl mb-3">{"🏳️"}</div>
           <h2 className="font-title text-lg font-bold mb-2">No Alliance</h2>
           <p className="text-sm text-[var(--text-muted)] mb-4">
             Create an alliance or wait for an invitation to join one.
@@ -223,7 +225,7 @@ export default function AlliancePage() {
             onClick={() => setView("create")}
             className="btn-primary text-sm px-6 py-2"
           >
-            {"\u2694\uFE0F"} Found Alliance
+            {"⚔️"} Found Alliance
           </button>
         </div>
       )}
@@ -293,7 +295,7 @@ export default function AlliancePage() {
         <>
           {/* Header */}
           <div className="card p-5 mb-4">
-            <div className="flex items-start justify-between mb-3">
+            <div className="flex items-start justify-between mb-3 gap-3">
               <div>
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-xs font-bold px-2 py-0.5 rounded bg-[var(--color-gold)]/20 text-[var(--color-gold)] border border-[var(--color-gold)]/30">
@@ -305,8 +307,16 @@ export default function AlliancePage() {
                   <p className="text-xs text-[var(--text-muted)] mt-1">{alliance.description}</p>
                 )}
               </div>
-              <div className="text-xs text-[var(--text-muted)]">
-                {alliance.memberCount} member{alliance.memberCount !== 1 ? "s" : ""}
+              <div className="flex flex-col items-end gap-2">
+                <div className="text-xs text-[var(--text-muted)]">
+                  {alliance.memberCount} member{alliance.memberCount !== 1 ? "s" : ""}
+                </div>
+                <button
+                  onClick={() => navigate(`/alliance/${alliance.id}`)}
+                  className="btn-secondary text-xs px-3 py-1"
+                >
+                  {"📖"} Public Profile
+                </button>
               </div>
             </div>
 
@@ -358,21 +368,27 @@ export default function AlliancePage() {
                     key={m.playerId}
                     className="flex items-center justify-between p-2 rounded-lg hover:bg-[var(--surface-0)]/50 transition-colors"
                   >
-                    <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/player/${m.playerId}`)}
+                      className="flex items-center gap-2 text-left flex-1"
+                    >
                       <span className="text-sm">
                         {m.role === "leader"
-                          ? "\u{1F451}"
+                          ? "👑"
                           : m.role === "officer"
-                            ? "\u{1F6E1}\uFE0F"
-                            : "\u{1F464}"}
+                            ? "🛡️"
+                            : "👤"}
                       </span>
                       <div>
-                        <div className="text-sm font-semibold">{m.displayName}</div>
-                        <div className="text-[0.6rem] text-[var(--text-muted)]">
-                          Fief Lv.{m.fiefLevel} | {m.role}
+                        <div className="text-sm font-semibold hover:text-[var(--color-gold-light)]">
+                          {m.displayName}
+                        </div>
+                        <div className="text-fluid-xs text-[var(--text-muted)]">
+                          {m.role}
                         </div>
                       </div>
-                    </div>
+                    </button>
 
                     {/* Role management (leader only, not on self) */}
                     {myRole === "leader" && m.role !== "leader" && (
@@ -380,33 +396,33 @@ export default function AlliancePage() {
                         {m.role === "member" ? (
                           <button
                             onClick={() => handleRole(m.playerId, "officer")}
-                            className="btn-ghost text-[0.6rem] px-2 py-0.5"
+                            className="btn-ghost text-fluid-xs px-2 py-0.5"
                             title="Promote to Officer"
                           >
-                            {"\u2B06\uFE0F"}
+                            {"⬆️"}
                           </button>
                         ) : (
                           <button
                             onClick={() => handleRole(m.playerId, "member")}
-                            className="btn-ghost text-[0.6rem] px-2 py-0.5"
+                            className="btn-ghost text-fluid-xs px-2 py-0.5"
                             title="Demote to Member"
                           >
-                            {"\u2B07\uFE0F"}
+                            {"⬇️"}
                           </button>
                         )}
                         <button
                           onClick={() => handleTransfer(m.playerId)}
-                          className="btn-ghost text-[0.6rem] px-2 py-0.5"
+                          className="btn-ghost text-fluid-xs px-2 py-0.5"
                           title="Transfer Leadership"
                         >
-                          {"\u{1F451}"}
+                          {"👑"}
                         </button>
                         <button
                           onClick={() => handleKick(m.playerId)}
-                          className="btn-ghost text-[0.6rem] px-2 py-0.5 text-[var(--color-danger-light)]"
+                          className="btn-ghost text-fluid-xs px-2 py-0.5 text-[var(--color-danger-light)]"
                           title="Kick"
                         >
-                          {"\u274C"}
+                          {"❌"}
                         </button>
                       </div>
                     )}
@@ -415,10 +431,10 @@ export default function AlliancePage() {
                     {myRole === "officer" && m.role === "member" && (
                       <button
                         onClick={() => handleKick(m.playerId)}
-                        className="btn-ghost text-[0.6rem] px-2 py-0.5 text-[var(--color-danger-light)]"
+                        className="btn-ghost text-fluid-xs px-2 py-0.5 text-[var(--color-danger-light)]"
                         title="Kick"
                       >
-                        {"\u274C"}
+                        {"❌"}
                       </button>
                     )}
                   </div>
@@ -432,17 +448,17 @@ export default function AlliancePage() {
               <button
                 onClick={handleDisband}
                 disabled={actionLoading}
-                className="btn-outline text-xs py-2 w-full border-[var(--color-danger)]/40 text-[var(--color-danger-light)] hover:bg-[var(--color-danger)]/10"
+                className="btn-danger text-xs py-2 w-full"
               >
-                Disband Alliance
+                {"⚠️"} Disband Alliance
               </button>
             ) : (
               <button
                 onClick={handleLeave}
                 disabled={actionLoading}
-                className="btn-outline text-xs py-2 w-full border-[var(--color-danger)]/40 text-[var(--color-danger-light)] hover:bg-[var(--color-danger)]/10"
+                className="btn-danger text-xs py-2 w-full"
               >
-                Leave Alliance
+                {"🚪"} Leave Alliance
               </button>
             )}
           </div>

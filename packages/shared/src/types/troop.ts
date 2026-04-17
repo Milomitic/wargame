@@ -1,8 +1,11 @@
 export const TROOP_TYPES = [
   "militia",
+  "spearman",
   "infantry",
   "archer",
-  "cavalry",
+  "scout",
+  "cavalry_light",
+  "cavalry_heavy",
   "catapult",
 ] as const;
 
